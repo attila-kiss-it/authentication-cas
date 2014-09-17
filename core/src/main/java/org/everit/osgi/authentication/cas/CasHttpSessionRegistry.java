@@ -14,17 +14,16 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with Everit - CAS authentication.  If not, see <http://www.gnu.org/licenses/>.
  */
-package org.everit.osgi.authentication.cas.internal;
+package org.everit.osgi.authentication.cas;
 
-public class TicketValidationException extends Exception {
+import java.util.Optional;
 
-    /**
-     * Serial version UID.
-     */
-    private static final long serialVersionUID = -3180080337626141284L;
+import javax.servlet.http.HttpSession;
 
-    public TicketValidationException(final String reason) {
-        super("Failed to validate ticket: [" + reason + "]");
-    }
+public interface CasHttpSessionRegistry {
+
+    void addSession(String serviceTicket, HttpSession httpSession);
+
+    Optional<HttpSession> removeByServiceTicket(String serviceTicket);
 
 }

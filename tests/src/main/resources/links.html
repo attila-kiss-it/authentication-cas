@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>CAS test links</title>
+</head>
+<body>
+  <a href="https://localhost:8443/cas/login?service=http://localhost:8081/hello?foo=bar">CAS Login</a>
+  <br />
+  <a href="https://localhost:8443/cas/logout?service=http%3A%2F%2Flocalhost%3A8081%2Flogout%3FloggedOutUrl%3Dhttp%3A%2F%2Flocalhost%3A8081%2Fhello">CAS Logout with service redirect</a>
+  <br />
+  <a href="https://localhost:8443/cas/logout">CAS Logout without service redirect</a>
+  <br />
+  <a href="http://localhost:8081/logout?loggedOutUrl=http%3A%2F%2Flocalhost%3A8081%2Fhello">Session Logout</a>
+</body>
+</html>
