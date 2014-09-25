@@ -18,8 +18,6 @@ package org.everit.osgi.authentication.http.cas.sample;
 
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.Map;
-import java.util.Map.Entry;
 
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
@@ -47,7 +45,7 @@ public class HelloWorldServletComponent extends HttpServlet {
 
     public static final String GUEST = "guest";
 
-    public static final String JANEDOE = "janedoe";
+    private static final String JANEDOE = "janedoe";
 
     @Reference(bind = "setAuthenticationContext")
     private AuthenticationContext authenticationContext;
@@ -60,12 +58,7 @@ public class HelloWorldServletComponent extends HttpServlet {
 
         resp.setContentType("text/plain");
         PrintWriter out = resp.getWriter();
-        out.println(userName);
-
-        Map<String, String[]> parameterMap = req.getParameterMap();
-        for (Entry<String, String[]> entry : parameterMap.entrySet()) {
-            out.println(entry.getKey() + "=" + entry.getValue()[0]);
-        }
+        out.print(userName);
     }
 
     private String getUserName(final long currentResourceId) {

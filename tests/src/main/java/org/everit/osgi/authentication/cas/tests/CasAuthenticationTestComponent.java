@@ -16,13 +16,26 @@
  */
 package org.everit.osgi.authentication.cas.tests;
 
+import java.io.InputStream;
+import java.io.StringWriter;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.servlet.Filter;
 import javax.servlet.Servlet;
+import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionListener;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.ConfigurationPolicy;
@@ -31,14 +44,37 @@ import org.apache.felix.scr.annotations.Properties;
 import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.Service;
+import org.apache.http.Header;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHost;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.cookie.Cookie;
+import org.apache.http.impl.client.BasicCookieStore;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.DefaultRedirectStrategy;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.everit.osgi.authentication.http.cas.sample.CasResourceIdResolver;
+import org.everit.osgi.authentication.http.cas.sample.HelloWorldServletComponent;
+import org.everit.osgi.dev.testrunner.TestDuringDevelopment;
 import org.everit.osgi.dev.testrunner.TestRunnerConstants;
+import org.junit.Assert;
 import org.junit.Test;
 import org.osgi.framework.BundleContext;
+import org.osgi.service.log.LogService;
 
 @Component(name = "CasAuthenticationTest", metatype = true, configurationFactory = true,
         policy = ConfigurationPolicy.REQUIRE, immediate = true)
@@ -50,14 +86,31 @@ import org.osgi.framework.BundleContext;
         @Property(name = "sessionLogoutServlet.target"),
         @Property(name = "casAuthenticationFilter.target"),
         @Property(name = "casHttpSessionActivationListener.target"),
-        @Property(name = "casHttpSessionListener.target")
+        @Property(name = "casHttpSessionListener.target"),
+        @Property(name = "logService.target")
 })
 @Service(value = CasAuthenticationTestComponent.class)
 public class CasAuthenticationTestComponent {
 
+    private static final String LOCALE = "locale=en";
+
     private static final String HELLO_SERVLET_ALIAS = "/hello";
 
     private static final String LOGOUT_SERVLET_ALIAS = "/logout";
+
+    private static final String CAS_URL = "https://localhost:8443/cas";
+
+    private static final String CAS_LOGIN_URL = CAS_URL + "/login";
+
+    private static final String CAS_LOGOUT_URL = CAS_URL + "/logout";
+
+    private static final String CAS_PING_FAILURE_MESSAGE = "CAS login URL [" + CAS_LOGIN_URL + "] not available! "
+            + "Jetty should be executed by jetty-maven-plugin automatically in pre-integration-test phase "
+            + "or manually using the 'mvn jetty:run' command (see pom.xml).";
+
+    private static final String CAS_LT_BEGIN = "name=\"lt\" value=\"";
+
+    private static final String CAS_EXECUTION_BEGIN = "name=\"execution\" value=\"";
 
     @Reference(bind = "setHelloWorldServlet")
     private Servlet helloWorldServlet;
@@ -77,13 +130,37 @@ public class CasAuthenticationTestComponent {
     @Reference(bind = "setCasHttpSessionListener")
     private HttpSessionListener casHttpSessionListener;
 
-    private String helloUrl;
+    @Reference(bind = "setLogService")
+    private LogService logService;
+
+    private String helloServiceUrl;
+
+    private String sessionLogoutUrl;
+
+    private String loggedOutUrl;
 
     private Server testServer;
 
+    private BundleContext bundleContext;
+
+    private HttpClientContext httpClientContext;
+
+    private CloseableHttpClient httpClient;
+
+    private boolean loggedIn = false;
+
     @Activate
-    public void activate(final BundleContext context, final Map<String, Object> componentProperties)
+    public void activate(final BundleContext bundleContext, final Map<String, Object> componentProperties)
             throws Exception {
+
+        this.bundleContext = bundleContext;
+
+        httpClientContext = HttpClientContext.create();
+        httpClientContext.setCookieStore(new BasicCookieStore());
+
+        initSecureHttpClient();
+        pingCasLoginUrl();
+
         testServer = new Server(8081);
         ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
         SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
@@ -106,15 +183,186 @@ public class CasAuthenticationTestComponent {
         String testServerURI = testServer.getURI().toString();
         String testServerURL = testServerURI.substring(0, testServerURI.length() - 1);
 
-        // helloUrl = testServerURL + HELLO_SERVLET_ALIAS;
+        helloServiceUrl = testServerURL + HELLO_SERVLET_ALIAS;
+        sessionLogoutUrl = testServerURL + "/logout";
+        loggedOutUrl = testServerURL + "/logged-out.html";
+    }
+
+    private void casLogin() throws Exception {
+
+        String casLoginUrl = CAS_LOGIN_URL + "?" + LOCALE + "&service="
+                + URLEncoder.encode(helloServiceUrl, StandardCharsets.UTF_8.displayName());
+        String[] hiddenFormParams = getHiddenParamsFromCasLoginForm(casLoginUrl);
+
+        // CAS login
+        HttpPost httpPost = new HttpPost(casLoginUrl);
+        List<NameValuePair> parameters = new ArrayList<NameValuePair>();
+        parameters.add(new BasicNameValuePair("username", CasResourceIdResolver.JOHNDOE));
+        parameters.add(new BasicNameValuePair("password", CasResourceIdResolver.JOHNDOE));
+        parameters.add(new BasicNameValuePair("lt", hiddenFormParams[0]));
+        parameters.add(new BasicNameValuePair("execution", hiddenFormParams[1]));
+        parameters.add(new BasicNameValuePair("_eventId", "submit"));
+        parameters.add(new BasicNameValuePair("submit", "LOGIN"));
+        HttpEntity httpEntity = new UrlEncodedFormEntity(parameters);
+        httpPost.setEntity(httpEntity);
+
+        HttpResponse httpResponse = httpClient.execute(httpPost, httpClientContext);
+        Assert.assertEquals(HttpServletResponse.SC_MOVED_TEMPORARILY, httpResponse.getStatusLine().getStatusCode());
+        Header locationHeader = httpResponse.getFirstHeader("Location");
+        Assert.assertNotNull(locationHeader);
+        String locationHeaderValue = locationHeader.getValue();
+        Assert.assertTrue(locationHeaderValue.startsWith(helloServiceUrl));
+        String locale = getLocale();
+        Assert.assertNotNull(locale);
+        EntityUtils.consume(httpResponse.getEntity());
+
+        // CAS ticket validation
+        locationHeaderValue = locationHeaderValue + "&locale=" + locale;
+        HttpGet httpGet = new HttpGet(locationHeaderValue);
+        httpResponse = httpClient.execute(httpGet, httpClientContext);
+
+        Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+
+        HttpUriRequest currentReq = (HttpUriRequest) httpClientContext.getRequest();
+        HttpHost currentHost = httpClientContext.getTargetHost();
+        String currentUrl = (currentReq.getURI().isAbsolute())
+                ? currentReq.getURI().toString()
+                : (currentHost.toURI() + currentReq.getURI());
+        Assert.assertEquals(helloServiceUrl, currentUrl);
+        httpEntity = httpResponse.getEntity();
+        Assert.assertEquals(CasResourceIdResolver.JOHNDOE, EntityUtils.toString(httpEntity));
+
+        EntityUtils.consume(httpEntity);
+
+        loggedIn = true;
+    }
+
+    private void casLoginWithTicket() throws Exception {
+        String casLoginUrl = CAS_LOGIN_URL + "?" + LOCALE + "&service="
+                + URLEncoder.encode(helloServiceUrl, StandardCharsets.UTF_8.displayName());
+        HttpGet httpGet = new HttpGet(casLoginUrl);
+        CloseableHttpResponse httpResponse = httpClient.execute(httpGet, httpClientContext);
+        Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+        EntityUtils.consume(httpResponse.getEntity());
+    }
+
+    private void casLogout() throws Exception {
+        if (loggedIn) {
+            HttpGet httpGet = new HttpGet(CAS_LOGOUT_URL);
+            HttpResponse httpResponse = httpClient.execute(httpGet, httpClientContext);
+            Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+            EntityUtils.consume(httpResponse.getEntity());
+            loggedIn = false;
+            Thread.sleep(1000); // wait for the CAS logout request to be processed asynchronously
+        }
     }
 
     @Deactivate
     public void deactivate() throws Exception {
+        casLogout();
+        httpClient.close();
         if (testServer != null) {
             testServer.stop();
             testServer.destroy();
         }
+    }
+
+    private String extractFromResponse(final String response, final String paramId) throws Exception {
+        int start = response.indexOf(paramId);
+        if (start != -1) {
+            start += paramId.length();
+            int end = response.indexOf("\"", start);
+            String value = response.substring(start, end);
+            return value;
+        }
+        return null;
+    }
+
+    private String[] getHiddenParamsFromCasLoginForm(final String casLoginUrl) throws Exception {
+
+        HttpGet httpGet = new HttpGet(casLoginUrl);
+        HttpResponse httpResponse = httpClient.execute(httpGet, httpClientContext);
+        Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+
+        String loginResponse = EntityUtils.toString(httpResponse.getEntity());
+
+        String lt = extractFromResponse(loginResponse, CAS_LT_BEGIN);
+        Assert.assertNotNull(lt);
+
+        String execution = extractFromResponse(loginResponse, CAS_EXECUTION_BEGIN);
+        Assert.assertNotNull(execution);
+
+        EntityUtils.consume(httpResponse.getEntity());
+        return new String[] { lt, execution };
+    }
+
+    private String getLocale() {
+        List<Cookie> cookies = httpClientContext.getCookieStore().getCookies();
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equals("org.springframework.web.servlet.i18n.CookieLocaleResolver.LOCALE")) {
+                return cookie.getValue();
+            }
+        }
+        return null;
+    }
+
+    private void hello(final String expectedPrincipal) throws Exception {
+        HttpGet httpGet = new HttpGet(helloServiceUrl);
+        HttpResponse httpResponse = httpClient.execute(httpGet, httpClientContext);
+        Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+        HttpEntity responseEntity = httpResponse.getEntity();
+        InputStream inputStream = responseEntity.getContent();
+        StringWriter writer = new StringWriter();
+        IOUtils.copy(inputStream, writer);
+        String responseBodyAsString = writer.toString();
+        Assert.assertEquals(expectedPrincipal, responseBodyAsString);
+        EntityUtils.consume(responseEntity);
+    }
+
+    private void initSecureHttpClient() throws Exception {
+        KeyStore trustStore = KeyStore.getInstance("jks");
+        trustStore.load(
+                bundleContext.getBundle().getResource("/jetty-keystore").openStream(), "changeit".toCharArray());
+
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm());
+        trustManagerFactory.init(trustStore);
+        TrustManager[] trustManagers = trustManagerFactory.getTrustManagers();
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, trustManagers, new SecureRandom());
+
+        httpClient = HttpClientBuilder.create()
+                .setSslcontext(sslContext)
+                .setRedirectStrategy(new DefaultRedirectStrategy())
+                .build();
+    }
+
+    private void pingCasLoginUrl() throws Exception {
+        HttpGet httpGet = new HttpGet(CAS_LOGIN_URL + "?" + LOCALE);
+        HttpResponse httpResponse = null;
+        try {
+            httpResponse = httpClient.execute(httpGet);
+            Assert.assertEquals(CAS_PING_FAILURE_MESSAGE,
+                    HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+        } catch (Exception e) {
+            Assert.fail(CAS_PING_FAILURE_MESSAGE);
+        }
+        EntityUtils.consume(httpResponse.getEntity());
+    }
+
+    private void sessionLogout() throws Exception {
+        HttpGet httpGet = new HttpGet(sessionLogoutUrl);
+        HttpResponse httpResponse = httpClient.execute(httpGet, httpClientContext);
+        Assert.assertEquals(HttpServletResponse.SC_NOT_FOUND, httpResponse.getStatusLine().getStatusCode());
+
+        HttpUriRequest currentReq = (HttpUriRequest) httpClientContext.getRequest();
+        HttpHost currentHost = httpClientContext.getTargetHost();
+        String currentUrl = (currentReq.getURI().isAbsolute())
+                ? currentReq.getURI().toString()
+                : (currentHost.toURI() + currentReq.getURI());
+        Assert.assertEquals(loggedOutUrl, currentUrl);
+        EntityUtils.consume(httpResponse.getEntity());
     }
 
     public void setCasAuthenticationFilter(final Filter casAuthenticationFilter) {
@@ -129,48 +377,12 @@ public class CasAuthenticationTestComponent {
         this.casHttpSessionListener = casHttpSessionListener;
     }
 
-    // private long hello(final HttpContext httpContext, final long expectedResourceId) throws IOException {
-    // HttpClient httpClient = new DefaultHttpClient();
-    // HttpGet httpGet = new HttpGet(helloUrl);
-    // HttpResponse httpResponse = httpClient.execute(httpGet, httpContext);
-    // Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
-    // HttpEntity responseEntity = httpResponse.getEntity();
-    // InputStream inputStream = responseEntity.getContent();
-    // StringWriter writer = new StringWriter();
-    // IOUtils.copy(inputStream, writer);
-    // String[] responseBodyAsString = writer.toString().split(":");
-    // long actualResourceId = Long.valueOf(responseBodyAsString[0]).longValue();
-    // long newResourceId = Long.valueOf(responseBodyAsString[1]).longValue();
-    // String st = responseBodyAsString.length == 3 ? responseBodyAsString[2] : "should be success";
-    // Assert.assertEquals(st.replaceAll("-->", ":"), expectedResourceId, actualResourceId);
-    // return newResourceId;
-    // }
-
-    // private void logoutGet(final HttpContext httpContext) throws ClientProtocolException, IOException {
-    // HttpClient httpClient = new DefaultHttpClient();
-    // HttpGet httpGet = new HttpGet(logoutUrl);
-    // HttpResponse httpResponse = httpClient.execute(httpGet, httpContext);
-    // Assert.assertEquals(HttpServletResponse.SC_NOT_FOUND, httpResponse.getStatusLine().getStatusCode());
-    //
-    // HttpUriRequest currentReq = (HttpUriRequest) httpContext.getAttribute(ExecutionContext.HTTP_REQUEST);
-    // HttpHost currentHost = (HttpHost) httpContext.getAttribute(ExecutionContext.HTTP_TARGET_HOST);
-    // String currentUrl = (currentReq.getURI().isAbsolute())
-    // ? currentReq.getURI().toString()
-    // : (currentHost.toURI() + currentReq.getURI());
-    // Assert.assertEquals(successLogoutUrl, currentUrl);
-    // }
-
-    // private void logoutPost(final HttpContext httpContext) throws ClientProtocolException, IOException {
-    // HttpClient httpClient = new DefaultHttpClient();
-    // HttpPost httpPost = new HttpPost(logoutUrl);
-    // HttpResponse httpResponse = httpClient.execute(httpPost, httpContext);
-    // Assert.assertEquals(HttpServletResponse.SC_MOVED_TEMPORARILY, httpResponse.getStatusLine().getStatusCode());
-    // Header locationHeader = httpResponse.getFirstHeader("Location");
-    // Assert.assertEquals(successLogoutUrl, locationHeader.getValue());
-    // }
-
     public void setHelloWorldServlet(final Servlet helloWorldServlet) {
         this.helloWorldServlet = helloWorldServlet;
+    }
+
+    public void setLogService(final LogService logService) {
+        this.logService = logService;
     }
 
     public void setSessionAuthenticationFilter(final Filter sessionAuthenticationFilter) {
@@ -182,22 +394,24 @@ public class CasAuthenticationTestComponent {
     }
 
     @Test
+    @TestDuringDevelopment
     public void testAccessHelloPage() throws Exception {
-        // CookieStore cookieStore = new BasicCookieStore();
-        // HttpContext httpContext = new BasicHttpContext();
-        // httpContext.setAttribute(ClientContext.COOKIE_STORE, cookieStore);
-        //
-        // long sessionResourceId = hello(httpContext, authenticationContext.getDefaultResourceId());
-        // sessionResourceId = hello(httpContext, sessionResourceId);
-        // sessionResourceId = hello(httpContext, sessionResourceId);
-        // logoutPost(httpContext);
-        //
-        // sessionResourceId = hello(httpContext, authenticationContext.getDefaultResourceId());
-        // sessionResourceId = hello(httpContext, sessionResourceId);
-        // sessionResourceId = hello(httpContext, sessionResourceId);
-        // logoutGet(httpContext);
-        //
-        // hello(httpContext, authenticationContext.getDefaultResourceId());
+        hello(HelloWorldServletComponent.GUEST);
+
+        casLogin();
+        hello(CasResourceIdResolver.JOHNDOE);
+        casLogout();
+        hello(HelloWorldServletComponent.GUEST);
+
+        casLogin();
+        hello(CasResourceIdResolver.JOHNDOE);
+        sessionLogout();
+        hello(HelloWorldServletComponent.GUEST);
+        casLoginWithTicket();
+        hello(CasResourceIdResolver.JOHNDOE);
+        casLogout();
+        hello(HelloWorldServletComponent.GUEST);
+
     }
 
 }

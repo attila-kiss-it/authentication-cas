@@ -60,6 +60,7 @@
           <instructions>
             <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
             <Import-Package>
+<!--               org.eclipse.jetty.servlet.listener, -->
               *
             </Import-Package>
             <Export-Package>
@@ -71,7 +72,15 @@
             <Provide-Capability>
               liquibase.schema;name=org.everit.osgi.authentication.cas;resource=/META-INF/liquibase/authentication.cas.liquibase.xml
             </Provide-Capability>
+<!--             <Embed-Dependency>cas-server-webapp;scope=compile|runtime</Embed-Dependency> -->
+<!--             <Embed-StripVersion>true</Embed-StripVersion> -->
+<!--             <Embed-Directory>cas</Embed-Directory> -->
+<!--             <Embed-Transitive>true</Embed-Transitive> -->
             <EOSGi-TestNum>1</EOSGi-TestNum>
+<!--             <Require-Bundle> -->
+<!--               org.eclipse.jetty.servlet -->
+<!--             </Require-Bundle> -->
+            <_failok>true</_failok>
           </instructions>
         </configuration>
       </plugin>
@@ -84,6 +93,46 @@
             <id>generate-scr-scrdescriptor</id>
             <goals>
               <goal>scr</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-maven-plugin</artifactId>
+        <version>9.2.3.v20140905</version>
+        <configuration>
+          <jettyXml>${project.build.outputDirectory}/jetty.xml,${project.build.outputDirectory}/jetty-ssl.xml,${project.build.outputDirectory}/jetty-https.xml</jettyXml>
+          <scanIntervalSeconds>0</scanIntervalSeconds>
+          <webApp>
+            <contextPath>/cas</contextPath>
+          </webApp>
+          <stopKey>stop-jetty</stopKey>
+          <stopPort>7867</stopPort>
+          <systemProperties>
+            <systemProperty>
+              <name>jetty.keystore.KeyStorePath</name>
+              <value>${project.build.outputDirectory}/jetty-keystore</value>
+            </systemProperty>
+            <systemProperty>
+              <name>jetty.keystore.TrustStorePath</name>
+              <value>${project.build.outputDirectory}/jetty-keystore</value>
+            </systemProperty>
+          </systemProperties>
+        </configuration>
+        <executions>
+          <execution>
+            <id>start-jetty</id>
+            <phase>pre-integration-test</phase>
+            <goals>
+              <goal>start</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>stop-jetty</id>
+            <phase>post-integration-test</phase>
+            <goals>
+              <goal>stop</goal>
             </goals>
           </execution>
         </executions>
@@ -117,8 +166,8 @@
                 <felix.cm.dir>${wrapper_home}/../configuration/configadmin</felix.cm.dir>
               </systemProperties>
               <vmOptions>
-<!--                 <vmOption>-Xdebug</vmOption> -->
-<!--                 <vmOption>-Xrunjdwp:server=y,transport=dt_socket,address=1044,suspend=n</vmOption> -->
+                <vmOption>-Xdebug</vmOption>
+                <vmOption>-Xrunjdwp:server=y,transport=dt_socket,address=1044,suspend=n</vmOption>
               </vmOptions>
             </environment>
           </environments>
@@ -253,51 +302,6 @@
       <version>2.3.0-b01</version>
     </dependency>
 
-    <!-- org.apache.httpcomponents for plain http testing -->
-    <dependency>
-      <groupId>org.apache.httpcomponents</groupId>
-      <artifactId>httpclient-osgi</artifactId>
-      <version>4.2.2</version>
-      <optional>true</optional>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>httpclient</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>httpmime</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>httpclient-cache</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>fluent-hc</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>commons-codec</groupId>
-          <artifactId>commons-codec</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.httpcomponents</groupId>
-      <artifactId>httpcore-osgi</artifactId>
-      <version>4.2.2</version>
-      <optional>true</optional>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>httpcore</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.httpcomponents</groupId>
-          <artifactId>httpcore-nio</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
     <dependency>
       <groupId>commons-logging</groupId>
       <artifactId>commons-logging</artifactId>
@@ -429,6 +433,60 @@
       <groupId>org.ow2.spec.osgi</groupId>
       <artifactId>ow2-httpservice-1.2-spec</artifactId>
       <version>1.0.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient-osgi</artifactId>
+      <version>4.3.5</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpclient</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpmime</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpclient-cache</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>fluent-hc</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>commons-codec</groupId>
+          <artifactId>commons-codec</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpcore</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpcore-osgi</artifactId>
+      <version>4.3.2</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpcore</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpcore-nio</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>org.jasig.cas</groupId>
+      <artifactId>cas-server-webapp</artifactId>
+      <version>3.5.2</version>
+      <type>war</type>
     </dependency>
 
   </dependencies>

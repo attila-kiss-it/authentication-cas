@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -42,11 +43,6 @@ import org.apache.felix.scr.annotations.Properties;
 import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.Service;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
 import org.everit.osgi.authentication.cas.CasAuthenticationConstants;
 import org.everit.osgi.authentication.cas.CasHttpSessionRegistry;
 import org.everit.osgi.authentication.http.session.AuthenticationSessionAttributeNames;
@@ -272,9 +268,10 @@ public class CasAuthenticationFilterComponent implements Filter {
             final HttpServletResponse httpServletResponse, final String serviceTicket) throws IOException {
 
         String serviceUrl = constructServiceUrl(httpServletRequest);
+        String locale = getRequestParameter(httpServletRequest, "locale");
 
         try {
-            String principal = validateServiceTicket(serviceUrl, serviceTicket);
+            String principal = validateServiceTicket(serviceUrl, serviceTicket, locale);
 
             Long authenticatedResourceId = resourceIdResolver.getResourceId(principal)
                     .orElseThrow(() -> new IllegalStateException("The principal [" + principal
@@ -327,30 +324,28 @@ public class CasAuthenticationFilterComponent implements Filter {
         this.resourceIdResolver = resourceIdResolver;
     }
 
-    private String validateServiceTicket(final String serviceUrl, final String serviceTicket)
+    private String validateServiceTicket(final String serviceUrl, final String serviceTicket, final String locale)
             throws IOException, TicketValidationException {
 
         String validationUrl = String.format(SERVICE_TICKET_VALIDATOR_URL_TEMPLATE,
                 casServiceTicketValidatorUrl,
                 URLEncoder.encode(serviceUrl, StandardCharsets.UTF_8.displayName()),
                 serviceTicket);
-
-        HttpClient httpClient = new DefaultHttpClient();
-        HttpGet httpGet = new HttpGet(validationUrl);
-        HttpResponse httpResponse = httpClient.execute(httpGet);
-        HttpEntity responseEntity = httpResponse.getEntity();
-        InputStream inputStream = responseEntity.getContent();
-        StringWriter writer = new StringWriter();
-        IOUtils.copy(inputStream, writer);
-        String response = writer.toString();
-        String error = getTextForElement(response, "authenticationFailure");
-
-        if ((error != null) && !error.trim().isEmpty()) {
-            throw new TicketValidationException(error.trim());
+        if (locale != null) {
+            validationUrl = validationUrl + "&locale=" + locale;
         }
 
-        String principal = getTextForElement(response, "user");
-        return principal;
-    }
+        URL url = new URL(validationUrl);
+        try (InputStream inputStream = url.openStream()) {
+            StringWriter writer = new StringWriter();
+            IOUtils.copy(inputStream, writer);
+            String response = writer.toString();
+            String error = getTextForElement(response, "authenticationFailure");
+            if ((error != null) && !error.trim().isEmpty()) {
+                throw new TicketValidationException(error.trim());
+            }
+            return getTextForElement(response, "user");
+        }
 
+    }
 }
