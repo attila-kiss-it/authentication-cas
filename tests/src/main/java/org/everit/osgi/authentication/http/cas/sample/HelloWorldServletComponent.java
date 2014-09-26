@@ -45,7 +45,7 @@ public class HelloWorldServletComponent extends HttpServlet {
 
     public static final String GUEST = "guest";
 
-    private static final String JANEDOE = "janedoe";
+    public static final String JANEDOE = "janedoe";
 
     @Reference(bind = "setAuthenticationContext")
     private AuthenticationContext authenticationContext;

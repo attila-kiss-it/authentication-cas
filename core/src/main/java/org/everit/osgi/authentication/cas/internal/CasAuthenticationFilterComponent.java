@@ -58,6 +58,20 @@ import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
+/**
+ * A {@link Filter} that supports CAS authentication. The following cases are handled by this component:
+ * <ul>
+ * <li><b>CAS service ticket validation</b>: If the request contains a CAS service ticket, it will be validated on the
+ * CAS server by invoking its service ticket validation URL. If the ticket is valid and the returned principal
+ * (username) can be mapped to a Resource ID, then the Resource ID will be assigned to the session.</li>
+ * <li><b>CAS logout request processing</b>: If the request is a CAS logout request, then the session assigned to the
+ * service ticket (received in the logout request) will invalidated. The CAS server sends the logout request
+ * asynchronously to the clients, therefore the session of the logout request is not the same as the session of the
+ * user. The mapping of service tickets and sessions are handled by the {@link CasHttpSessionRegistry}.</li>
+ * </ul>
+ * It is recommended to use this component in pair with <a
+ * href="https://github.com/everit-org/authentication-http-session">authentication-http-session</a>
+ */
 @Component(name = CasAuthenticationConstants.SERVICE_FACTORYPID_CAS_AUTHENTICATION_FILTER, metatype = true,
         configurationFactory = true, policy = ConfigurationPolicy.REQUIRE)
 @Properties({
@@ -80,6 +94,14 @@ import org.xml.sax.helpers.DefaultHandler;
 public class CasAuthenticationFilterComponent implements Filter {
 
     private static final String SERVICE_TICKET_VALIDATOR_URL_TEMPLATE = "%1$s?service=%2$s&ticket=%3$s";
+
+    private static final String SESSION_INDEX = "SessionIndex";
+
+    private static final String USER = "user";
+
+    private static final String AUTHENTICATION_FAILURE = "authenticationFailure";
+
+    private static final String LOCALE = "locale";
 
     @Reference(bind = "setAuthenticationSessionAttributeNames")
     private AuthenticationSessionAttributeNames authenticationSessionAttributeNames;
@@ -268,7 +290,7 @@ public class CasAuthenticationFilterComponent implements Filter {
             final HttpServletResponse httpServletResponse, final String serviceTicket) throws IOException {
 
         String serviceUrl = constructServiceUrl(httpServletRequest);
-        String locale = getRequestParameter(httpServletRequest, "locale");
+        String locale = getRequestParameter(httpServletRequest, LOCALE);
 
         try {
             String principal = validateServiceTicket(serviceUrl, serviceTicket, locale);
@@ -282,7 +304,7 @@ public class CasAuthenticationFilterComponent implements Filter {
             httpSession.setAttribute(authenticationSessionAttributeNames.authenticatedResourceId(),
                     authenticatedResourceId);
 
-            casHttpSessionRegistry.addSession(serviceTicket, httpSession);
+            casHttpSessionRegistry.put(serviceTicket, httpSession);
 
             httpServletResponse.sendRedirect(serviceUrl);
 
@@ -295,9 +317,9 @@ public class CasAuthenticationFilterComponent implements Filter {
             final HttpServletResponse httpServletResponse) throws IOException {
 
         String logoutRequest = httpServletRequest.getParameter(requestParamNameLogoutRequest);
-        String sessionIndex = getTextForElement(logoutRequest, "SessionIndex");
+        String sessionIndex = getTextForElement(logoutRequest, SESSION_INDEX);
 
-        casHttpSessionRegistry.removeByServiceTicket(sessionIndex)
+        casHttpSessionRegistry.remove(sessionIndex)
                 .ifPresent((httpSession) -> {
                     try {
                         httpSession.invalidate();
@@ -332,7 +354,7 @@ public class CasAuthenticationFilterComponent implements Filter {
                 URLEncoder.encode(serviceUrl, StandardCharsets.UTF_8.displayName()),
                 serviceTicket);
         if (locale != null) {
-            validationUrl = validationUrl + "&locale=" + locale;
+            validationUrl = validationUrl + "&" + LOCALE + "=" + locale;
         }
 
         URL url = new URL(validationUrl);
@@ -340,11 +362,11 @@ public class CasAuthenticationFilterComponent implements Filter {
             StringWriter writer = new StringWriter();
             IOUtils.copy(inputStream, writer);
             String response = writer.toString();
-            String error = getTextForElement(response, "authenticationFailure");
+            String error = getTextForElement(response, AUTHENTICATION_FAILURE);
             if ((error != null) && !error.trim().isEmpty()) {
                 throw new TicketValidationException(error.trim());
             }
-            return getTextForElement(response, "user");
+            return getTextForElement(response, USER);
         }
 
     }

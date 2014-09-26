@@ -60,7 +60,6 @@
           <instructions>
             <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
             <Import-Package>
-<!--               org.eclipse.jetty.servlet.listener, -->
               *
             </Import-Package>
             <Export-Package>
@@ -72,15 +71,7 @@
             <Provide-Capability>
               liquibase.schema;name=org.everit.osgi.authentication.cas;resource=/META-INF/liquibase/authentication.cas.liquibase.xml
             </Provide-Capability>
-<!--             <Embed-Dependency>cas-server-webapp;scope=compile|runtime</Embed-Dependency> -->
-<!--             <Embed-StripVersion>true</Embed-StripVersion> -->
-<!--             <Embed-Directory>cas</Embed-Directory> -->
-<!--             <Embed-Transitive>true</Embed-Transitive> -->
-            <EOSGi-TestNum>1</EOSGi-TestNum>
-<!--             <Require-Bundle> -->
-<!--               org.eclipse.jetty.servlet -->
-<!--             </Require-Bundle> -->
-            <_failok>true</_failok>
+            <EOSGi-TestNum>3</EOSGi-TestNum>
           </instructions>
         </configuration>
       </plugin>
@@ -154,6 +145,7 @@
           <jacoco>
             <includes>org.everit.osgi.authentication.cas.*</includes>
             <excludes>org.everit.osgi.authentication.cas.tests.*</excludes>
+            <output>$${ if (System.getenv("EOSGI_STOP_AFTER_TESTS").equals("true")) "file"; else "tcpserver"; }</output>
           </jacoco>
           <environments>
             <environment>

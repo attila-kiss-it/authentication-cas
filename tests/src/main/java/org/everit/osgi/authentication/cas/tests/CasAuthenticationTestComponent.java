@@ -32,7 +32,6 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.servlet.Filter;
 import javax.servlet.Servlet;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionListener;
 
 import org.apache.commons.io.IOUtils;
@@ -69,9 +68,10 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.everit.osgi.authentication.http.cas.sample.CasResourceIdResolver;
 import org.everit.osgi.authentication.http.cas.sample.HelloWorldServletComponent;
-import org.everit.osgi.dev.testrunner.TestDuringDevelopment;
 import org.everit.osgi.dev.testrunner.TestRunnerConstants;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.osgi.framework.BundleContext;
 import org.osgi.service.log.LogService;
@@ -85,12 +85,13 @@ import org.osgi.service.log.LogService;
         @Property(name = "sessionAuthenticationFilter.target"),
         @Property(name = "sessionLogoutServlet.target"),
         @Property(name = "casAuthenticationFilter.target"),
-        @Property(name = "casHttpSessionActivationListener.target"),
         @Property(name = "casHttpSessionListener.target"),
         @Property(name = "logService.target")
 })
 @Service(value = CasAuthenticationTestComponent.class)
 public class CasAuthenticationTestComponent {
+
+    private static final String INVALID_TICKET = "INVALID_TICKET";
 
     private static final String LOCALE = "locale=en";
 
@@ -124,9 +125,6 @@ public class CasAuthenticationTestComponent {
     @Reference(bind = "setCasAuthenticationFilter")
     private Filter casAuthenticationFilter;
 
-    @Reference(bind = "setCasHttpSessionActivationListener")
-    private HttpSessionActivationListener casHttpSessionActivationListener;
-
     @Reference(bind = "setCasHttpSessionListener")
     private HttpSessionListener casHttpSessionListener;
 
@@ -139,7 +137,9 @@ public class CasAuthenticationTestComponent {
 
     private String loggedOutUrl;
 
-    private Server testServer;
+    private String failedUrl;
+
+    private Server server;
 
     private BundleContext bundleContext;
 
@@ -155,19 +155,15 @@ public class CasAuthenticationTestComponent {
 
         this.bundleContext = bundleContext;
 
-        httpClientContext = HttpClientContext.create();
-        httpClientContext.setCookieStore(new BasicCookieStore());
-
         initSecureHttpClient();
         pingCasLoginUrl();
 
-        testServer = new Server(8081);
+        server = new Server(8081); // TODO use random port
         ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
         SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
         sessionHandler.addEventListener(casHttpSessionListener);
-        sessionHandler.addEventListener(casHttpSessionActivationListener);
 
-        testServer.setHandler(servletContextHandler);
+        server.setHandler(servletContextHandler);
 
         servletContextHandler.addFilter(
                 new FilterHolder(sessionAuthenticationFilter), "/*", null);
@@ -178,17 +174,28 @@ public class CasAuthenticationTestComponent {
         servletContextHandler.addServlet(
                 new ServletHolder("sessionLogoutServlet", sessionLogoutServlet), LOGOUT_SERVLET_ALIAS);
 
-        testServer.start();
+        server.start();
 
-        String testServerURI = testServer.getURI().toString();
+        String testServerURI = server.getURI().toString();
         String testServerURL = testServerURI.substring(0, testServerURI.length() - 1);
 
         helloServiceUrl = testServerURL + HELLO_SERVLET_ALIAS;
         sessionLogoutUrl = testServerURL + "/logout";
         loggedOutUrl = testServerURL + "/logged-out.html";
+        failedUrl = testServerURL + "/failed.html";
     }
 
-    private void casLogin() throws Exception {
+    @After
+    public void after() throws Exception {
+        casLogout();
+    }
+
+    @Before
+    public void before() throws Exception {
+        initSecureHttpClient();
+    }
+
+    private void casLogin(final String username) throws Exception {
 
         String casLoginUrl = CAS_LOGIN_URL + "?" + LOCALE + "&service="
                 + URLEncoder.encode(helloServiceUrl, StandardCharsets.UTF_8.displayName());
@@ -197,8 +204,8 @@ public class CasAuthenticationTestComponent {
         // CAS login
         HttpPost httpPost = new HttpPost(casLoginUrl);
         List<NameValuePair> parameters = new ArrayList<NameValuePair>();
-        parameters.add(new BasicNameValuePair("username", CasResourceIdResolver.JOHNDOE));
-        parameters.add(new BasicNameValuePair("password", CasResourceIdResolver.JOHNDOE));
+        parameters.add(new BasicNameValuePair("username", username));
+        parameters.add(new BasicNameValuePair("password", username));
         parameters.add(new BasicNameValuePair("lt", hiddenFormParams[0]));
         parameters.add(new BasicNameValuePair("execution", hiddenFormParams[1]));
         parameters.add(new BasicNameValuePair("_eventId", "submit"));
@@ -210,31 +217,53 @@ public class CasAuthenticationTestComponent {
         Assert.assertEquals(HttpServletResponse.SC_MOVED_TEMPORARILY, httpResponse.getStatusLine().getStatusCode());
         Header locationHeader = httpResponse.getFirstHeader("Location");
         Assert.assertNotNull(locationHeader);
-        String locationHeaderValue = locationHeader.getValue();
-        Assert.assertTrue(locationHeaderValue.startsWith(helloServiceUrl));
+        String ticketValidationUrl = locationHeader.getValue();
+        Assert.assertTrue(ticketValidationUrl.startsWith(helloServiceUrl));
         String locale = getLocale();
         Assert.assertNotNull(locale);
         EntityUtils.consume(httpResponse.getEntity());
 
         // CAS ticket validation
-        locationHeaderValue = locationHeaderValue + "&locale=" + locale;
-        HttpGet httpGet = new HttpGet(locationHeaderValue);
+        ticketValidationUrl = ticketValidationUrl + "&locale=" + locale;
+
+        if (username.equals(INVALID_TICKET)) {
+            ticketValidationUrl = ticketValidationUrl.replace("ticket=", "ticket=X");
+        }
+
+        HttpGet httpGet = new HttpGet(ticketValidationUrl);
         httpResponse = httpClient.execute(httpGet, httpClientContext);
 
-        Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
+        if (username.equals(CasResourceIdResolver.JOHNDOE)) {
+            Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
 
-        HttpUriRequest currentReq = (HttpUriRequest) httpClientContext.getRequest();
-        HttpHost currentHost = httpClientContext.getTargetHost();
-        String currentUrl = (currentReq.getURI().isAbsolute())
-                ? currentReq.getURI().toString()
-                : (currentHost.toURI() + currentReq.getURI());
-        Assert.assertEquals(helloServiceUrl, currentUrl);
-        httpEntity = httpResponse.getEntity();
-        Assert.assertEquals(CasResourceIdResolver.JOHNDOE, EntityUtils.toString(httpEntity));
+            HttpUriRequest currentReq = (HttpUriRequest) httpClientContext.getRequest();
+            HttpHost currentHost = httpClientContext.getTargetHost();
+            String currentUrl = (currentReq.getURI().isAbsolute())
+                    ? currentReq.getURI().toString()
+                    : (currentHost.toURI() + currentReq.getURI());
+            Assert.assertEquals(helloServiceUrl, currentUrl);
+            httpEntity = httpResponse.getEntity();
+            Assert.assertEquals(CasResourceIdResolver.JOHNDOE, EntityUtils.toString(httpEntity));
 
-        EntityUtils.consume(httpEntity);
+            EntityUtils.consume(httpEntity);
 
-        loggedIn = true;
+            loggedIn = true;
+        } else {
+            // Unknown principal (cannot be mapped to a Resource ID)
+            Assert.assertEquals(HttpServletResponse.SC_NOT_FOUND, httpResponse.getStatusLine().getStatusCode());
+
+            HttpUriRequest currentReq = (HttpUriRequest) httpClientContext.getRequest();
+            HttpHost currentHost = httpClientContext.getTargetHost();
+            String currentUrl = (currentReq.getURI().isAbsolute())
+                    ? currentReq.getURI().toString()
+                    : (currentHost.toURI() + currentReq.getURI());
+            Assert.assertEquals(failedUrl, currentUrl);
+            httpEntity = httpResponse.getEntity();
+
+            EntityUtils.consume(httpEntity);
+
+            loggedIn = false;
+        }
     }
 
     private void casLoginWithTicket() throws Exception {
@@ -252,18 +281,18 @@ public class CasAuthenticationTestComponent {
             HttpResponse httpResponse = httpClient.execute(httpGet, httpClientContext);
             Assert.assertEquals(HttpServletResponse.SC_OK, httpResponse.getStatusLine().getStatusCode());
             EntityUtils.consume(httpResponse.getEntity());
-            loggedIn = false;
             Thread.sleep(1000); // wait for the CAS logout request to be processed asynchronously
         }
+        loggedIn = false;
     }
 
     @Deactivate
     public void deactivate() throws Exception {
         casLogout();
         httpClient.close();
-        if (testServer != null) {
-            testServer.stop();
-            testServer.destroy();
+        if (server != null) {
+            server.stop();
+            server.destroy();
         }
     }
 
@@ -320,6 +349,9 @@ public class CasAuthenticationTestComponent {
     }
 
     private void initSecureHttpClient() throws Exception {
+        httpClientContext = HttpClientContext.create();
+        httpClientContext.setCookieStore(new BasicCookieStore());
+
         KeyStore trustStore = KeyStore.getInstance("jks");
         trustStore.load(
                 bundleContext.getBundle().getResource("/jetty-keystore").openStream(), "changeit".toCharArray());
@@ -369,10 +401,6 @@ public class CasAuthenticationTestComponent {
         this.casAuthenticationFilter = casAuthenticationFilter;
     }
 
-    public void setCasHttpSessionActivationListener(final HttpSessionActivationListener casHttpSessionActivationListener) {
-        this.casHttpSessionActivationListener = casHttpSessionActivationListener;
-    }
-
     public void setCasHttpSessionListener(final HttpSessionListener casHttpSessionListener) {
         this.casHttpSessionListener = casHttpSessionListener;
     }
@@ -394,16 +422,28 @@ public class CasAuthenticationTestComponent {
     }
 
     @Test
-    @TestDuringDevelopment
-    public void testAccessHelloPage() throws Exception {
+    public void testAccessHelloPageWithInvalidTicket() throws Exception {
+        hello(HelloWorldServletComponent.GUEST);
+        casLogin(INVALID_TICKET);
+    }
+
+    @Test
+    public void testAccessHelloPageWithJane() throws Exception {
         hello(HelloWorldServletComponent.GUEST);
 
-        casLogin();
+        casLogin(HelloWorldServletComponent.JANEDOE);
+    }
+
+    @Test
+    public void testAccessHelloPageWithJohn() throws Exception {
+        hello(HelloWorldServletComponent.GUEST);
+
+        casLogin(CasResourceIdResolver.JOHNDOE);
         hello(CasResourceIdResolver.JOHNDOE);
         casLogout();
         hello(HelloWorldServletComponent.GUEST);
 
-        casLogin();
+        casLogin(CasResourceIdResolver.JOHNDOE);
         hello(CasResourceIdResolver.JOHNDOE);
         sessionLogout();
         hello(HelloWorldServletComponent.GUEST);
@@ -411,7 +451,6 @@ public class CasAuthenticationTestComponent {
         hello(CasResourceIdResolver.JOHNDOE);
         casLogout();
         hello(HelloWorldServletComponent.GUEST);
-
     }
 
 }

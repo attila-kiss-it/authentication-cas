@@ -17,11 +17,11 @@
 package org.everit.osgi.authentication.cas.internal;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.http.HttpSession;
-import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionEvent;
 import javax.servlet.http.HttpSessionListener;
 
@@ -43,7 +43,6 @@ import org.osgi.framework.Constants;
 @Service
 public class CasHttpSessionRegistryComponent implements
         CasHttpSessionRegistry,
-        HttpSessionActivationListener,
         HttpSessionListener {
 
     private static final String SERVICE_TICKET_SESSION_ATTR_NAME = "org.everit.osgi.authentication.cas.ServiceTicket";
@@ -53,30 +52,19 @@ public class CasHttpSessionRegistryComponent implements
     private final Map<String, HttpSession> sessionsBySessionId = new ConcurrentHashMap<>();
 
     @Override
-    public void addSession(final String serviceTicket, final HttpSession httpSession) {
-        httpSession.setAttribute(SERVICE_TICKET_SESSION_ATTR_NAME, serviceTicket);
-        put(serviceTicket, httpSession);
-    }
+    public void put(final String serviceTicket, final HttpSession httpSession) {
+        Objects.requireNonNull(serviceTicket, "serviceTicket cannot be null");
+        Objects.requireNonNull(httpSession, "httpSession cannot be null");
 
-    private void put(final String nullableServiceTicket, final HttpSession httpSession) {
+        httpSession.setAttribute(SERVICE_TICKET_SESSION_ATTR_NAME, serviceTicket);
         String sessionId = httpSession.getId();
         sessionsBySessionId.put(sessionId, httpSession);
-
-        Optional.ofNullable(nullableServiceTicket)
-                .ifPresent((serviceTicket) -> sessionIdsByServiceTickets.put(serviceTicket, sessionId));
-    }
-
-    private void remove(final HttpSessionEvent httpSessionEvent) {
-        HttpSession httpSession = httpSessionEvent.getSession();
-        String sessionId = httpSession.getId();
-        sessionsBySessionId.remove(sessionId);
-
-        Optional.ofNullable(httpSession.getAttribute(SERVICE_TICKET_SESSION_ATTR_NAME))
-                .ifPresent((serviceTicket) -> sessionIdsByServiceTickets.remove(serviceTicket));
+        sessionIdsByServiceTickets.put(serviceTicket, sessionId);
     }
 
     @Override
-    public Optional<HttpSession> removeByServiceTicket(final String serviceTicket) {
+    public Optional<HttpSession> remove(final String serviceTicket) {
+        Objects.requireNonNull(serviceTicket, "serviceTicket cannot be null");
         String sessionId = sessionIdsByServiceTickets.remove(serviceTicket);
         if (sessionId == null) {
             return Optional.empty();
@@ -91,19 +79,11 @@ public class CasHttpSessionRegistryComponent implements
 
     @Override
     public void sessionDestroyed(final HttpSessionEvent httpSessionEvent) {
-        remove(httpSessionEvent);
-    }
-
-    @Override
-    public void sessionDidActivate(final HttpSessionEvent httpSessionEvent) {
         HttpSession httpSession = httpSessionEvent.getSession();
-        String serviceTicket = (String) httpSession.getAttribute(SERVICE_TICKET_SESSION_ATTR_NAME);
-        put(serviceTicket, httpSession);
-    }
-
-    @Override
-    public void sessionWillPassivate(final HttpSessionEvent httpSessionEvent) {
-        remove(httpSessionEvent);
+        String sessionId = httpSession.getId();
+        sessionsBySessionId.remove(sessionId);
+        Optional.ofNullable(httpSession.getAttribute(SERVICE_TICKET_SESSION_ATTR_NAME))
+                .ifPresent((serviceTicket) -> sessionIdsByServiceTickets.remove(serviceTicket));
     }
 
 }
