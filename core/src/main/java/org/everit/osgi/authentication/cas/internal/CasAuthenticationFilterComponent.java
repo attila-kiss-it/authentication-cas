@@ -28,12 +28,19 @@ import java.util.Map;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
+import javax.servlet.ServletContext;
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import javax.servlet.http.HttpSessionAttributeListener;
+import javax.servlet.http.HttpSessionBindingEvent;
+import javax.servlet.http.HttpSessionEvent;
+import javax.servlet.http.HttpSessionListener;
 import javax.xml.parsers.SAXParserFactory;
 
 import org.apache.commons.io.IOUtils;
@@ -44,7 +51,6 @@ import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.Service;
 import org.everit.osgi.authentication.cas.CasAuthenticationConstants;
-import org.everit.osgi.authentication.cas.CasHttpSessionRegistry;
 import org.everit.osgi.authentication.http.session.AuthenticationSessionAttributeNames;
 import org.everit.osgi.resource.resolver.ResourceIdResolver;
 import org.osgi.framework.BundleContext;
@@ -73,7 +79,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * href="https://github.com/everit-org/authentication-http-session">authentication-http-session</a>
  */
 @Component(name = CasAuthenticationConstants.SERVICE_FACTORYPID_CAS_AUTHENTICATION_FILTER, metatype = true,
-        configurationFactory = true, policy = ConfigurationPolicy.REQUIRE)
+        configurationFactory = true, policy = ConfigurationPolicy.REQUIRE, immediate = true)
 @Properties({
         @Property(name = Constants.SERVICE_DESCRIPTION, propertyPrivate = false,
                 value = CasAuthenticationConstants.DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION_FILTER),
@@ -87,11 +93,15 @@ import org.xml.sax.helpers.DefaultHandler;
                 value = CasAuthenticationConstants.DEFAULT_FAILURE_URL),
         @Property(name = CasAuthenticationConstants.PROP_AUTHENTICATION_SESSION_ATTRIBUTE_NAMES),
         @Property(name = CasAuthenticationConstants.PROP_RESOURCE_ID_RESOLVER),
-        @Property(name = CasAuthenticationConstants.PROP_CAS_HTTP_SESSION_REGISTRY),
+        @Property(name = CasAuthenticationConstants.PROP_SAX_PARSER_FACTORY),
         @Property(name = CasAuthenticationConstants.PROP_LOG_SERVICE),
 })
 @Service
-public class CasAuthenticationFilterComponent implements Filter {
+public class CasAuthenticationFilterComponent implements
+        Filter,
+        ServletContextListener,
+        HttpSessionListener,
+        HttpSessionAttributeListener {
 
     private static final String SERVICE_TICKET_VALIDATOR_URL_TEMPLATE = "%1$s?service=%2$s&ticket=%3$s";
 
@@ -109,8 +119,8 @@ public class CasAuthenticationFilterComponent implements Filter {
     @Reference(bind = "setResourceIdResolver")
     private ResourceIdResolver resourceIdResolver;
 
-    @Reference(bind = "setCasHttpSessionRegistry")
-    private CasHttpSessionRegistry casHttpSessionRegistry;
+    @Reference(bind = "setSaxParserFactory")
+    private SAXParserFactory saxParserFactory;
 
     @Reference(bind = "setLogService")
     private LogService logService;
@@ -123,6 +133,8 @@ public class CasAuthenticationFilterComponent implements Filter {
 
     private String requestParamNameLogoutRequest;
 
+    private String servicePid;
+
     @Activate
     public void activate(final BundleContext context, final Map<String, Object> componentProperties) throws Exception {
         casServiceTicketValidatorUrl = getStringProperty(componentProperties,
@@ -133,6 +145,39 @@ public class CasAuthenticationFilterComponent implements Filter {
                 CasAuthenticationConstants.PROP_REQ_PARAM_NAME_SERVICE_TICKET);
         requestParamNameLogoutRequest = getStringProperty(componentProperties,
                 CasAuthenticationConstants.PROP_REQ_PARAM_NAME_LOGOUT_REQUEST);
+        servicePid = getStringProperty(componentProperties, Constants.SERVICE_PID);
+    }
+
+    @Override
+    public void attributeAdded(final HttpSessionBindingEvent event) {
+        String addedAttributeName = event.getName();
+        if (addedAttributeName.startsWith(CasHttpSessionActivationListener.SESSION_ATTR_NAME_SERVICE_PID_PREFIX)) {
+            String servicePid = (String) event.getValue();
+            HttpSession httpSession = event.getSession();
+
+            String instanceSessionAttrName = CasHttpSessionActivationListener.getInstanceSessionAttrName(servicePid);
+            if (httpSession.getAttribute(instanceSessionAttrName) == null) {
+                CasHttpSessionActivationListener.registerInstance(servicePid, httpSession);
+
+                String attributeNameToRemove =
+                        CasHttpSessionActivationListener.getServicePidSessionAttrName(servicePid);
+                if (attributeNameToRemove.equals(addedAttributeName)) {
+                    httpSession.removeAttribute(attributeNameToRemove);
+                }
+            } else {
+                CasHttpSessionActivationListener.removeInstance(servicePid, httpSession);
+            }
+        }
+    }
+
+    @Override
+    public void attributeRemoved(final HttpSessionBindingEvent event) {
+        // Nothing to do
+    }
+
+    @Override
+    public void attributeReplaced(final HttpSessionBindingEvent event) {
+        // Nothing to do
     }
 
     private String constructServiceUrl(final HttpServletRequest httpServletRequest) {
@@ -152,16 +197,16 @@ public class CasAuthenticationFilterComponent implements Filter {
         return serviceUrl;
     }
 
-    private XMLReader createXmlReader() {
-        try {
-            XMLReader xmlReader = SAXParserFactory.newInstance().newSAXParser().getXMLReader();
-            xmlReader.setFeature("http://xml.org/sax/features/namespaces", true);
-            xmlReader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
-            xmlReader.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            return xmlReader;
-        } catch (final Exception e) {
-            throw new RuntimeException("Unable to create XMLReader", e);
-        }
+    @Override
+    public void contextDestroyed(final ServletContextEvent servletContextEvent) {
+        ServletContext servletContext = servletContextEvent.getServletContext();
+        CasHttpSessionRegistry.removeInstance(servicePid, servletContext);
+    }
+
+    @Override
+    public void contextInitialized(final ServletContextEvent servletContextEvent) {
+        ServletContext servletContext = servletContextEvent.getServletContext();
+        CasHttpSessionRegistry.registerInstance(servicePid, servletContext);
     }
 
     @Override
@@ -219,7 +264,16 @@ public class CasAuthenticationFilterComponent implements Filter {
 
     private String getTextForElement(final String xmlAsString, final String element) {
 
-        XMLReader reader = createXmlReader();
+        XMLReader xmlReader;
+        try {
+            xmlReader = saxParserFactory.newSAXParser().getXMLReader();
+            xmlReader.setFeature("http://xml.org/sax/features/namespaces", true);
+            xmlReader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
+            xmlReader.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        } catch (final Exception e) {
+            throw new RuntimeException("Unable to create XMLReader", e);
+        }
+
         StringBuilder builder = new StringBuilder();
 
         DefaultHandler handler = new DefaultHandler() {
@@ -249,11 +303,11 @@ public class CasAuthenticationFilterComponent implements Filter {
             }
         };
 
-        reader.setContentHandler(handler);
-        reader.setErrorHandler(handler);
+        xmlReader.setContentHandler(handler);
+        xmlReader.setErrorHandler(handler);
 
         try {
-            reader.parse(new InputSource(new StringReader(xmlAsString)));
+            xmlReader.parse(new InputSource(new StringReader(xmlAsString)));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -297,13 +351,17 @@ public class CasAuthenticationFilterComponent implements Filter {
 
             Long authenticatedResourceId = resourceIdResolver.getResourceId(principal)
                     .orElseThrow(() -> new IllegalStateException("The principal [" + principal
-                            + "] of the valid service ticket cannot be mapped to Resource ID."
+                            + "] of the valid service ticket cannot be mapped to a Resource ID."
                             + " The session will not be assigned to any Resource ID."));
 
             HttpSession httpSession = httpServletRequest.getSession();
             httpSession.setAttribute(authenticationSessionAttributeNames.authenticatedResourceId(),
                     authenticatedResourceId);
+            CasHttpSessionActivationListener.registerInstance(servicePid, httpSession);
 
+            ServletContext servletContext = httpServletRequest.getServletContext();
+            CasHttpSessionRegistry casHttpSessionRegistry =
+                    CasHttpSessionRegistry.getInstance(servicePid, servletContext);
             casHttpSessionRegistry.put(serviceTicket, httpSession);
 
             httpServletResponse.sendRedirect(serviceUrl);
@@ -319,7 +377,11 @@ public class CasAuthenticationFilterComponent implements Filter {
         String logoutRequest = httpServletRequest.getParameter(requestParamNameLogoutRequest);
         String sessionIndex = getTextForElement(logoutRequest, SESSION_INDEX);
 
-        casHttpSessionRegistry.remove(sessionIndex)
+        ServletContext servletContext = httpServletRequest.getServletContext();
+        CasHttpSessionRegistry casHttpSessionRegistry =
+                CasHttpSessionRegistry.getInstance(servicePid, servletContext);
+
+        casHttpSessionRegistry.removeByServiceTicket(sessionIndex)
                 .ifPresent((httpSession) -> {
                     try {
                         httpSession.invalidate();
@@ -329,13 +391,24 @@ public class CasAuthenticationFilterComponent implements Filter {
                 });
     }
 
+    @Override
+    public void sessionCreated(final HttpSessionEvent httpSessionEvent) {
+        // Nothing to do here.
+    }
+
+    @Override
+    public void sessionDestroyed(final HttpSessionEvent httpSessionEvent) {
+        HttpSession httpSession = httpSessionEvent.getSession();
+        ServletContext servletContext = httpSession.getServletContext();
+
+        CasHttpSessionRegistry casHttpSessionRegistry =
+                CasHttpSessionRegistry.getInstance(servicePid, servletContext);
+        casHttpSessionRegistry.removeBySession(httpSession);
+    }
+
     public void setAuthenticationSessionAttributeNames(
             final AuthenticationSessionAttributeNames authenticationSessionAttributeNames) {
         this.authenticationSessionAttributeNames = authenticationSessionAttributeNames;
-    }
-
-    public void setCasHttpSessionRegistry(final CasHttpSessionRegistry casHttpSessionRegistry) {
-        this.casHttpSessionRegistry = casHttpSessionRegistry;
     }
 
     public void setLogService(final LogService logService) {
@@ -344,6 +417,10 @@ public class CasAuthenticationFilterComponent implements Filter {
 
     public void setResourceIdResolver(final ResourceIdResolver resourceIdResolver) {
         this.resourceIdResolver = resourceIdResolver;
+    }
+
+    public void setSaxParserFactory(final SAXParserFactory saxParserFactory) {
+        this.saxParserFactory = saxParserFactory;
     }
 
     private String validateServiceTicket(final String serviceUrl, final String serviceTicket, final String locale)
@@ -370,4 +447,5 @@ public class CasAuthenticationFilterComponent implements Filter {
         }
 
     }
+
 }

@@ -16,6 +16,7 @@
  */
 package org.everit.osgi.authentication.cas.tests;
 
+import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.net.URLEncoder;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.EventListener;
 import java.util.List;
 import java.util.Map;
 
@@ -32,7 +34,6 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.servlet.Filter;
 import javax.servlet.Servlet;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSessionListener;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.felix.scr.annotations.Activate;
@@ -54,6 +55,7 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.conn.HttpHostConnectException;
 import org.apache.http.cookie.Cookie;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -62,6 +64,7 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.session.HashSessionManager;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -72,7 +75,9 @@ import org.everit.osgi.dev.testrunner.TestRunnerConstants;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.FixMethodOrder;
 import org.junit.Test;
+import org.junit.runners.MethodSorters;
 import org.osgi.framework.BundleContext;
 import org.osgi.service.log.LogService;
 
@@ -85,10 +90,11 @@ import org.osgi.service.log.LogService;
         @Property(name = "sessionAuthenticationFilter.target"),
         @Property(name = "sessionLogoutServlet.target"),
         @Property(name = "casAuthenticationFilter.target"),
-        @Property(name = "casHttpSessionListener.target"),
+        @Property(name = "casEventListener.target"),
         @Property(name = "logService.target")
 })
 @Service(value = CasAuthenticationTestComponent.class)
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class CasAuthenticationTestComponent {
 
     private static final String INVALID_TICKET = "INVALID_TICKET";
@@ -125,8 +131,8 @@ public class CasAuthenticationTestComponent {
     @Reference(bind = "setCasAuthenticationFilter")
     private Filter casAuthenticationFilter;
 
-    @Reference(bind = "setCasHttpSessionListener")
-    private HttpSessionListener casHttpSessionListener;
+    @Reference(bind = "")
+    private EventListener casEventListener;
 
     @Reference(bind = "setLogService")
     private LogService logService;
@@ -159,11 +165,9 @@ public class CasAuthenticationTestComponent {
         pingCasLoginUrl();
 
         server = new Server(8081); // TODO use random port
-        ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
-        SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
-        sessionHandler.addEventListener(casHttpSessionListener);
 
-        server.setHandler(servletContextHandler);
+        // Initialize servlet context
+        ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
 
         servletContextHandler.addFilter(
                 new FilterHolder(sessionAuthenticationFilter), "/*", null);
@@ -173,6 +177,21 @@ public class CasAuthenticationTestComponent {
                 new ServletHolder("helloWorldServlet", helloWorldServlet), HELLO_SERVLET_ALIAS);
         servletContextHandler.addServlet(
                 new ServletHolder("sessionLogoutServlet", sessionLogoutServlet), LOGOUT_SERVLET_ALIAS);
+
+        servletContextHandler.addEventListener(casEventListener);
+        server.setHandler(servletContextHandler);
+
+        // Initialize session management
+        HashSessionManager sessionManager = new HashSessionManager();
+        String sessionStoreDirecotry = System.getProperty("jetty.session.store.directory");
+        sessionManager.setStoreDirectory(new File(sessionStoreDirecotry));
+        sessionManager.setIdleSavePeriod(1);
+        sessionManager.setSavePeriod(1);
+        sessionManager.setLazyLoad(true); // required to initialize the servlet context before restoring the sessions
+        sessionManager.addEventListener(casEventListener);
+
+        SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
+        sessionHandler.setSessionManager(sessionManager);
 
         server.start();
 
@@ -401,8 +420,8 @@ public class CasAuthenticationTestComponent {
         this.casAuthenticationFilter = casAuthenticationFilter;
     }
 
-    public void setCasHttpSessionListener(final HttpSessionListener casHttpSessionListener) {
-        this.casHttpSessionListener = casHttpSessionListener;
+    public void setCasEventListener(final EventListener casEventListener) {
+        this.casEventListener = casEventListener;
     }
 
     public void setHelloWorldServlet(final Servlet helloWorldServlet) {
@@ -422,20 +441,20 @@ public class CasAuthenticationTestComponent {
     }
 
     @Test
-    public void testAccessHelloPageWithInvalidTicket() throws Exception {
+    public void test_01_AccessHelloPageWithInvalidTicket() throws Exception {
         hello(HelloWorldServletComponent.GUEST);
         casLogin(INVALID_TICKET);
     }
 
     @Test
-    public void testAccessHelloPageWithJane() throws Exception {
+    public void test_02_AccessHelloPageWithJane() throws Exception {
         hello(HelloWorldServletComponent.GUEST);
 
         casLogin(HelloWorldServletComponent.JANEDOE);
     }
 
     @Test
-    public void testAccessHelloPageWithJohn() throws Exception {
+    public void test_03_AccessHelloPageWithJohn() throws Exception {
         hello(HelloWorldServletComponent.GUEST);
 
         casLogin(CasResourceIdResolver.JOHNDOE);
@@ -451,6 +470,26 @@ public class CasAuthenticationTestComponent {
         hello(CasResourceIdResolver.JOHNDOE);
         casLogout();
         hello(HelloWorldServletComponent.GUEST);
+    }
+
+    @Test
+    public void test_04_ServerRestart() throws Exception {
+        hello(HelloWorldServletComponent.GUEST);
+
+        casLogin(CasResourceIdResolver.JOHNDOE);
+        hello(CasResourceIdResolver.JOHNDOE);
+
+        server.stop();
+        // server.destroy();
+        try {
+            hello(CasResourceIdResolver.JOHNDOE);
+            Assert.fail();
+        } catch (HttpHostConnectException e) {
+            Assert.assertTrue(e.getMessage().contains("Connection refused"));
+        }
+        server.start();
+
+        hello(CasResourceIdResolver.JOHNDOE);
     }
 
 }
