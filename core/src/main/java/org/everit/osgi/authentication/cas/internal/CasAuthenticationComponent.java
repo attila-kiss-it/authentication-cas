@@ -86,7 +86,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * invalidated.</li>
  * <li><b>{@link HttpSessionAttributeListener}</b>: Registers and removes the {@link CasHttpSessionActivationListener}
  * to and from the {@link HttpSession} because it IS NOT {@link java.io.Serializable} and cannot be
- * instantiated/deserialize by a non-OSGi technology. Class loading problems can occur when deserializing this
+ * instantiated/deserialized by a non-OSGi technology. Class loading problems can occur when deserializing this
  * {@link java.util.EventListener} if it is still in the {@link HttpSession} during serialization.</li>
  * </ul>
  * <p>
@@ -196,6 +196,10 @@ public class CasAuthenticationComponent implements
      */
     private String servicePid;
 
+    /**
+     * {@link org.apache.felix.scr.annotations.Activate} method of the component. It collects the configured component
+     * properties and stores it in the member variables.
+     */
     @Activate
     public void activate(final BundleContext context, final Map<String, Object> componentProperties) throws Exception {
         casServiceTicketValidatorUrl = getStringProperty(componentProperties,
@@ -205,16 +209,33 @@ public class CasAuthenticationComponent implements
         servicePid = getStringProperty(componentProperties, Constants.SERVICE_PID);
     }
 
+    /**
+     * Handles the case when a special session attribute is added. If an attribute added (manually or when restoring a
+     * persistent session) with name starting with
+     * {@link CasHttpSessionActivationListener#SESSION_ATTR_NAME_SERVICE_PID_PREFIX} this listener method will:
+     * <ul>
+     * <li>Register a {@link CasHttpSessionActivationListener} instance to the session and remove the added session
+     * attribute if the {@link CasHttpSessionActivationListener} IS NOT REGISTERED to the session already with the
+     * Service PID stored in the session. This is necessary to re-register the EventListener when a session is restored
+     * from its persistent state.</li>
+     * <li>Remove the {@link CasHttpSessionActivationListener} instance from the session if the
+     * {@link CasHttpSessionActivationListener} IS REGISTERED to the session already with the Service PID stored in the
+     * session. This is necessary to remove the EventListener from the session before it will be Serialized, because the
+     * {@link CasHttpSessionActivationListener} is not {@link java.io.Serializable} and cannot be
+     * instantiated/deserialized by a non-OSGi technology</li>
+     * </ul>
+     */
     @Override
     public void attributeAdded(final HttpSessionBindingEvent event) {
         String addedAttributeName = event.getName();
         if (addedAttributeName.startsWith(CasHttpSessionActivationListener.SESSION_ATTR_NAME_SERVICE_PID_PREFIX)) {
 
             String servicePid = (String) event.getValue();
-            String sessionAttrNameInstance = CasHttpSessionActivationListener.createSessionAttrNameInstance(servicePid);
+            String casHttpSessionActivationListenerSessionAttrName =
+                    CasHttpSessionActivationListener.createSessionAttrNameInstance(servicePid);
 
             HttpSession httpSession = event.getSession();
-            if (httpSession.getAttribute(sessionAttrNameInstance) == null) {
+            if (httpSession.getAttribute(casHttpSessionActivationListenerSessionAttrName) == null) {
 
                 CasHttpSessionActivationListener.registerInstance(servicePid, httpSession);
                 String attributeNameToRemove =
@@ -238,7 +259,34 @@ public class CasAuthenticationComponent implements
         // Nothing to do
     }
 
-    private String constructServiceUrl(final HttpServletRequest httpServletRequest) {
+    /**
+     * Removes the previously registered {@link CasHttpSessionRegistry} from the {@link ServletContext} when it is
+     * destroyed.
+     */
+    @Override
+    public void contextDestroyed(final ServletContextEvent servletContextEvent) {
+        ServletContext servletContext = servletContextEvent.getServletContext();
+        CasHttpSessionRegistry.removeInstance(servicePid, servletContext);
+    }
+
+    /**
+     * Registers the {@link CasHttpSessionRegistry} to the {@link ServletContext} when it is initialized.
+     */
+    @Override
+    public void contextInitialized(final ServletContextEvent servletContextEvent) {
+        ServletContext servletContext = servletContextEvent.getServletContext();
+        CasHttpSessionRegistry.registerInstance(servicePid, servletContext);
+    }
+
+    /**
+     * Creates the service URL forwarded to the CAS server as "service" parameter in case of service ticket validation.
+     * This URL will be used to redirect the user if the service ticket validation succeeds.
+     *
+     * @param httpServletRequest
+     *            the request used to build the service URL
+     * @return the service URL
+     */
+    private String createServiceUrl(final HttpServletRequest httpServletRequest) {
         String queryString = httpServletRequest.getQueryString();
         if (queryString == null) {
             queryString = "";
@@ -256,22 +304,21 @@ public class CasAuthenticationComponent implements
     }
 
     @Override
-    public void contextDestroyed(final ServletContextEvent servletContextEvent) {
-        ServletContext servletContext = servletContextEvent.getServletContext();
-        CasHttpSessionRegistry.removeInstance(servicePid, servletContext);
-    }
-
-    @Override
-    public void contextInitialized(final ServletContextEvent servletContextEvent) {
-        ServletContext servletContext = servletContextEvent.getServletContext();
-        CasHttpSessionRegistry.registerInstance(servicePid, servletContext);
-    }
-
-    @Override
     public void destroy() {
         // Nothing to do here.
     }
 
+    /**
+     * The method that processes the request is filter's url pattern matches the requst. This method handles one of the
+     * followings in order:
+     * <ul>
+     * <li>Performs a CAS service ticket validation if the request contains a service ticket named by
+     * {@link #requestParamNameServiceTicket}.</li>
+     * <li>Processes a back channel logout initiated by the CAS server if the request is POST request and contains a
+     * parameter named by {@link #requestParamNameLogoutRequest}.</li>
+     * <li>Invokes further the {@link FilterChain}.</li>
+     * </ul>
+     */
     @Override
     public void doFilter(final ServletRequest request, final ServletResponse response, final FilterChain chain)
             throws IOException, ServletException {
@@ -284,7 +331,7 @@ public class CasAuthenticationComponent implements
             HttpServletResponse httpServletResponse = (HttpServletResponse) response;
             performServiceTicketValidation(httpServletRequest, httpServletResponse, serviceTicket);
 
-        } else if (isLogoutRequest(httpServletRequest)) {
+        } else if (isCasLogoutRequest(httpServletRequest)) {
             HttpServletResponse httpServletResponse = (HttpServletResponse) response;
             processBackChannelLogout(httpServletRequest, httpServletResponse);
 
@@ -296,6 +343,15 @@ public class CasAuthenticationComponent implements
 
     }
 
+    /**
+     * Returns the value of a request parameter if available.
+     *
+     * @param httpServletRequest
+     *            the request to check for the parameter.
+     * @param name
+     *            the name of the parameter to check
+     * @return the value of the requested parameter if available and not empty, otherwise <code>null</code>
+     */
     private String getRequestParameter(final HttpServletRequest httpServletRequest, final String name) {
         if (!isRequestContains(httpServletRequest, name)) {
             return null;
@@ -320,7 +376,18 @@ public class CasAuthenticationComponent implements
         return String.valueOf(value);
     }
 
-    private String getTextForElement(final String xmlAsString, final String element) {
+    /**
+     * Returns the value of an XML element. This method is used to process the XMLs sent by the CAS server.
+     *
+     * @param xmlAsString
+     *            the XML string to process
+     * @param elementName
+     *            the name of the queried element
+     * @return the value assigned to the queried element name
+     * @throws RuntimeException
+     *             if any error occurs during the parsing of the XML string
+     */
+    private String getTextForElement(final String xmlAsString, final String elementName) {
 
         XMLReader xmlReader;
         try {
@@ -347,7 +414,7 @@ public class CasAuthenticationComponent implements
 
             @Override
             public void endElement(final String uri, final String localName, final String qName) throws SAXException {
-                if (localName.equals(element)) {
+                if (localName.equals(elementName)) {
                     foundElement = false;
                 }
             }
@@ -355,7 +422,7 @@ public class CasAuthenticationComponent implements
             @Override
             public void startElement(final String uri, final String localName, final String qName,
                     final Attributes attributes) throws SAXException {
-                if (localName.equals(element)) {
+                if (localName.equals(elementName)) {
                     foundElement = true;
                 }
             }
@@ -373,6 +440,18 @@ public class CasAuthenticationComponent implements
         return builder.toString();
     }
 
+    /**
+     * Redirects the response to the configured {@link #failureUrl} and logs the given message and exception.
+     *
+     * @param httpServletResponse
+     *            the response used to redirect
+     * @param message
+     *            the error message to log
+     * @param e
+     *            the exception to log
+     * @throws IOException
+     *             if an input or output exception occurs
+     */
     private void handleError(final HttpServletResponse httpServletResponse, final String message,
             final Exception e) throws IOException {
         logService.log(LogService.LOG_ERROR, message, e);
@@ -388,20 +467,55 @@ public class CasAuthenticationComponent implements
         // Nothing to do here.
     }
 
-    private boolean isLogoutRequest(final HttpServletRequest httpServletRequest) {
+    /**
+     * Checks if the request is a CAS logout request.
+     *
+     * @param httpServletRequest
+     *            the request to check
+     * @return <code>true</code> if the request is a POST and a parameter with key
+     *         {@link #requestParamNameLogoutRequest} exists in the request, otherwise <code>false</code>
+     */
+    private boolean isCasLogoutRequest(final HttpServletRequest httpServletRequest) {
         return httpServletRequest.getMethod().equals("POST")
                 && httpServletRequest.getParameterMap().containsKey(requestParamNameLogoutRequest);
     }
 
+    /**
+     * Checks if the query string of the request contains the given name.
+     *
+     * @param httpServletRequest
+     *            the request to check
+     * @param name
+     *            the name to check with
+     * @return <code>true</code> if the query string is not <code>null</code> and contains the <code>name</code>
+     *         argument, otherwise <code>false</code>
+     */
     private boolean isRequestContains(final HttpServletRequest httpServletRequest, final String name) {
         String queryString = httpServletRequest.getQueryString();
         return (queryString != null) && queryString.contains(name);
     }
 
+    /**
+     * Performs a CAS service ticket validation. The following tasks are done if the service ticket is valid:
+     * <ul>
+     * <li>The authenticated username/principal sent by the CAS server is mapped to a Resource ID.</li>
+     * <li>The mapped Resource ID is added to the {@link HttpSession} with the name provided by the
+     * {@link AuthenticationSessionAttributeNames#authenticatedResourceId()} method. This Resource ID will be picked up
+     * by the {@link Filter} provided by the <a
+     * href="https://github.com/everit-org/authentication-http-session">authentication-http-session</a> component and
+     * that filter will execute the authenticated process in the name of the authenticated user.</li>
+     * <li>A {@link CasHttpSessionActivationListener} is also registered to the session to handle session passivation
+     * and activation events (for e.g. in case of persistent sessions).</li>
+     * <li>The {@link HttpSession} is registered to the {@link CasHttpSessionRegistry} stored in the
+     * {@link ServletContext} to be able to handle CAS logout requests (invalidate the proper session belonging to the
+     * service ticket).</li>
+     * <li>Redirects the response to the service URL.</li>
+     * </ul>
+     */
     private void performServiceTicketValidation(final HttpServletRequest httpServletRequest,
             final HttpServletResponse httpServletResponse, final String serviceTicket) throws IOException {
 
-        String serviceUrl = constructServiceUrl(httpServletRequest);
+        String serviceUrl = createServiceUrl(httpServletRequest);
         String locale = getRequestParameter(httpServletRequest, LOCALE);
 
         try {
@@ -413,8 +527,10 @@ public class CasAuthenticationComponent implements
                             + " The session will not be assigned to any Resource ID."));
 
             HttpSession httpSession = httpServletRequest.getSession();
-            httpSession.setAttribute(authenticationSessionAttributeNames.authenticatedResourceId(),
+            httpSession.setAttribute(
+                    authenticationSessionAttributeNames.authenticatedResourceId(),
                     authenticatedResourceId);
+
             CasHttpSessionActivationListener.registerInstance(servicePid, httpSession);
 
             ServletContext servletContext = httpServletRequest.getServletContext();
@@ -429,6 +545,10 @@ public class CasAuthenticationComponent implements
         }
     }
 
+    /**
+     * Processes the CAS (back channel) logout requests. It retrieves the invalidated service ticket from the logout
+     * request and invalidates the {@link HttpSession} assigned to that service ticket.
+     */
     private void processBackChannelLogout(final HttpServletRequest httpServletRequest,
             final HttpServletResponse httpServletResponse) throws IOException {
 
@@ -454,6 +574,9 @@ public class CasAuthenticationComponent implements
         // Nothing to do here.
     }
 
+    /**
+     * When an {@link HttpSession} is destroyed it must be removed from the {@link CasHttpSessionRegistry}.
+     */
     @Override
     public void sessionDestroyed(final HttpSessionEvent httpSessionEvent) {
         HttpSession httpSession = httpSessionEvent.getSession();
@@ -481,6 +604,21 @@ public class CasAuthenticationComponent implements
         this.saxParserFactory = saxParserFactory;
     }
 
+    /**
+     * Validates a CAS service ticket and returns the username/principal belonging to that ticket.
+     *
+     * @param serviceUrl
+     *            the service URL used to validate the service ticket
+     * @param serviceTicket
+     *            the service ticket to validate
+     * @param locale
+     *            the locale of the user used in the communication with the CAS server
+     * @return the authenticated (in case of valid service ticket) username/principal
+     * @throws IOException
+     *             if an input or output exception occurs
+     * @throws TicketValidationException
+     *             if the ticket validation fails
+     */
     private String validateServiceTicket(final String serviceUrl, final String serviceTicket, final String locale)
             throws IOException, TicketValidationException {
 
