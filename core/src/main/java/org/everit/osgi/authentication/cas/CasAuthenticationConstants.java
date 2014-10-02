@@ -18,8 +18,8 @@ package org.everit.osgi.authentication.cas;
 
 public final class CasAuthenticationConstants {
 
-    public static final String SERVICE_FACTORYPID_CAS_AUTHENTICATION_FILTER =
-            "org.everit.osgi.authentication.cas.CasAuthenticationFilter";
+    public static final String SERVICE_FACTORYPID_CAS_AUTHENTICATION =
+            "org.everit.osgi.authentication.cas.CasAuthentication";
 
     public static final String DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION_FILTER =
             "Default CAS Authentication Filter";

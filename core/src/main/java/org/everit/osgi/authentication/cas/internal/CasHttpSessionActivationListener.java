@@ -138,9 +138,9 @@ public final class CasHttpSessionActivationListener implements HttpSessionActiva
      * Removes the passivated {@link HttpSession} from the {@link CasHttpSessionRegistry} and prepares the session
      * serialization. This means it sets the {@link #servicePid} as a session attribute with a dedicated attribute name
      * constructed from the {@link #servicePid} and the {@link HttpSessionAttributeListener} implemented by
-     * {@link CasAuthenticationFilterComponent} will handle this event.
+     * {@link CasAuthenticationComponent} will handle this event.
      *
-     * @see CasAuthenticationFilterComponent#attributeAdded(javax.servlet.http.HttpSessionBindingEvent)
+     * @see CasAuthenticationComponent#attributeAdded(javax.servlet.http.HttpSessionBindingEvent)
      */
     @Override
     public void sessionWillPassivate(final HttpSessionEvent httpSessionEvent) {

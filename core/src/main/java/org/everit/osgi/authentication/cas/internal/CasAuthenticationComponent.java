@@ -94,7 +94,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * href="https://github.com/everit-org/authentication-http-session">authentication-http-session</a>
  * </p>
  */
-@Component(name = CasAuthenticationConstants.SERVICE_FACTORYPID_CAS_AUTHENTICATION_FILTER, metatype = true,
+@Component(name = CasAuthenticationConstants.SERVICE_FACTORYPID_CAS_AUTHENTICATION, metatype = true,
         configurationFactory = true, policy = ConfigurationPolicy.REQUIRE, immediate = true)
 @Properties({
         @Property(name = Constants.SERVICE_DESCRIPTION, propertyPrivate = false,
@@ -113,7 +113,7 @@ import org.xml.sax.helpers.DefaultHandler;
         @Property(name = CasAuthenticationConstants.PROP_LOG_SERVICE),
 })
 @Service
-public class CasAuthenticationFilterComponent implements
+public class CasAuthenticationComponent implements
         Filter,
         ServletContextListener,
         HttpSessionListener,

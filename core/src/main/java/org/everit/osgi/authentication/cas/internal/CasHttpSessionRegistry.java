@@ -35,7 +35,7 @@ import javax.servlet.http.HttpSession;
  * In distributed environments every node has its own instance of {@link CasHttpSessionRegistry}. In case of CAS logout
  * (service ticket invalidation) the registry must be cleaned in every case to prevent memory leaks. This can be
  * achieved by forwarding the CAS logout request to every node by a <i>load balancer</i>. The logout request will be
- * processed by the {@link org.everit.osgi.authentication.cas.internal.CasAuthenticationFilterComponent} configured on
+ * processed by the {@link org.everit.osgi.authentication.cas.internal.CasAuthenticationComponent} configured on
  * the nodes. This filter will remove the session from the registry and invalidates it.
  * </p>
  * <p>
@@ -81,7 +81,7 @@ public final class CasHttpSessionRegistry {
             return new IllegalStateException("[" + servletContextAttrName + "] "
                     + "ServletContext attribute not availbale. "
                     + "Possible cause: ServletContext is not initialized by "
-                    + "CasAuthenticationFilterComponent yet (the sessions was restored before "
+                    + "CasAuthenticationComponent yet (the sessions was restored before "
                     + "ServletContext initialization).");
         });
     }
@@ -110,7 +110,7 @@ public final class CasHttpSessionRegistry {
         optionalInstance.ifPresent((instance) -> {
             throw new IllegalStateException("ServletContext attribute [" + servletContextAttrName + "] "
                     + "already registered. Possible cause: the EventListeners implemented by "
-                    + "CasAuthenticationFilterComponent is registered multiple times to the "
+                    + "CasAuthenticationComponent is registered multiple times to the "
                     + "ServletContextHandler.");
         });
         servletContext.setAttribute(servletContextAttrName, new CasHttpSessionRegistry());

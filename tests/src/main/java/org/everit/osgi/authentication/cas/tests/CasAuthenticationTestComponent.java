@@ -89,7 +89,7 @@ import org.osgi.service.log.LogService;
         @Property(name = "helloWorldServlet.target"),
         @Property(name = "sessionAuthenticationFilter.target"),
         @Property(name = "sessionLogoutServlet.target"),
-        @Property(name = "casAuthenticationFilter.target"),
+        @Property(name = "casAuthentication.target"),
         @Property(name = "casEventListener.target"),
         @Property(name = "logService.target")
 })
@@ -128,8 +128,8 @@ public class CasAuthenticationTestComponent {
     @Reference(bind = "setSessionLogoutServlet")
     private Servlet sessionLogoutServlet;
 
-    @Reference(bind = "setCasAuthenticationFilter")
-    private Filter casAuthenticationFilter;
+    @Reference(bind = "setCasAuthentication")
+    private Filter casAuthentication;
 
     @Reference(bind = "")
     private EventListener casEventListener;
@@ -172,7 +172,7 @@ public class CasAuthenticationTestComponent {
         servletContextHandler.addFilter(
                 new FilterHolder(sessionAuthenticationFilter), "/*", null);
         servletContextHandler.addFilter(
-                new FilterHolder(casAuthenticationFilter), "/*", null);
+                new FilterHolder(casAuthentication), "/*", null);
         servletContextHandler.addServlet(
                 new ServletHolder("helloWorldServlet", helloWorldServlet), HELLO_SERVLET_ALIAS);
         servletContextHandler.addServlet(
@@ -416,8 +416,8 @@ public class CasAuthenticationTestComponent {
         EntityUtils.consume(httpResponse.getEntity());
     }
 
-    public void setCasAuthenticationFilter(final Filter casAuthenticationFilter) {
-        this.casAuthenticationFilter = casAuthenticationFilter;
+    public void setCasAuthentication(final Filter casAuthentication) {
+        this.casAuthentication = casAuthentication;
     }
 
     public void setCasEventListener(final EventListener casEventListener) {
