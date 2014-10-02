@@ -98,13 +98,9 @@ import org.xml.sax.helpers.DefaultHandler;
         configurationFactory = true, policy = ConfigurationPolicy.REQUIRE, immediate = true)
 @Properties({
         @Property(name = Constants.SERVICE_DESCRIPTION, propertyPrivate = false,
-                value = CasAuthenticationConstants.DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION_FILTER),
+                value = CasAuthenticationConstants.DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION),
         @Property(name = CasAuthenticationConstants.PROP_CAS_SERVICE_TICKET_VALIDATION_URL,
                 value = CasAuthenticationConstants.DEFAULT_CAS_SERVICE_TICKET_VALIDATION_URL),
-        @Property(name = CasAuthenticationConstants.PROP_REQ_PARAM_NAME_SERVICE_TICKET,
-                value = CasAuthenticationConstants.DEFAULT_REQ_PARAM_NAME_SERVICE_TICKET),
-        @Property(name = CasAuthenticationConstants.PROP_REQ_PARAM_NAME_LOGOUT_REQUEST,
-                value = CasAuthenticationConstants.DEFAULT_REQ_PARAM_NAME_LOGOUT_REQUEST),
         @Property(name = CasAuthenticationConstants.PROP_FAILURE_URL,
                 value = CasAuthenticationConstants.DEFAULT_FAILURE_URL),
         @Property(name = CasAuthenticationConstants.PROP_AUTHENTICATION_SESSION_ATTRIBUTE_NAMES),
@@ -152,6 +148,16 @@ public class CasAuthenticationComponent implements
      */
     private static final String LOCALE = "locale";
 
+    /**
+     * The default value of the {@link #requestParamNameServiceTicket}.
+     */
+    private static final String DEFAULT_REQ_PARAM_NAME_SERVICE_TICKET = "ticket";
+
+    /**
+     * The default value of the {@link #requestParamNameLogoutRequest}.
+     */
+    private static final String DEFAULT_REQ_PARAM_NAME_LOGOUT_REQUEST = "logoutRequest";
+
     @Reference(bind = "setAuthenticationSessionAttributeNames")
     private AuthenticationSessionAttributeNames authenticationSessionAttributeNames;
 
@@ -174,10 +180,20 @@ public class CasAuthenticationComponent implements
      */
     private String failureUrl;
 
-    private String requestParamNameServiceTicket;
+    /**
+     * The HTTP request parameter name used by the CAS server when it sends the Service Ticket (ST) for validation to
+     * the protected application.
+     */
+    private String requestParamNameServiceTicket = DEFAULT_REQ_PARAM_NAME_SERVICE_TICKET;
 
-    private String requestParamNameLogoutRequest;
+    /**
+     * The HTTP request parameter name used by the CAS server when a Service Ticket (ST) is invalidated due to logout.
+     */
+    private String requestParamNameLogoutRequest = DEFAULT_REQ_PARAM_NAME_LOGOUT_REQUEST;
 
+    /**
+     * The persistent identifier of the services.
+     */
     private String servicePid;
 
     @Activate
@@ -186,10 +202,6 @@ public class CasAuthenticationComponent implements
                 CasAuthenticationConstants.PROP_CAS_SERVICE_TICKET_VALIDATION_URL);
         failureUrl = getStringProperty(componentProperties,
                 CasAuthenticationConstants.PROP_FAILURE_URL);
-        requestParamNameServiceTicket = getStringProperty(componentProperties,
-                CasAuthenticationConstants.PROP_REQ_PARAM_NAME_SERVICE_TICKET);
-        requestParamNameLogoutRequest = getStringProperty(componentProperties,
-                CasAuthenticationConstants.PROP_REQ_PARAM_NAME_LOGOUT_REQUEST);
         servicePid = getStringProperty(componentProperties, Constants.SERVICE_PID);
     }
 

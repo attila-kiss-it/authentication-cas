@@ -21,8 +21,8 @@ public final class CasAuthenticationConstants {
     public static final String SERVICE_FACTORYPID_CAS_AUTHENTICATION =
             "org.everit.osgi.authentication.cas.CasAuthentication";
 
-    public static final String DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION_FILTER =
-            "Default CAS Authentication Filter";
+    public static final String DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION =
+            "Default CAS Authentication";
 
     public static final String PROP_CAS_SERVICE_TICKET_VALIDATION_URL = "cas.service.ticket.validation.url";
 
@@ -31,14 +31,6 @@ public final class CasAuthenticationConstants {
     public static final String PROP_FAILURE_URL = "failure.url";
 
     public static final String DEFAULT_FAILURE_URL = "/failed.html";
-
-    public static final String PROP_REQ_PARAM_NAME_SERVICE_TICKET = "req.param.name.service.ticket";
-
-    public static final String DEFAULT_REQ_PARAM_NAME_SERVICE_TICKET = "ticket";
-
-    public static final String PROP_REQ_PARAM_NAME_LOGOUT_REQUEST = "req.param.name.logout.request";
-
-    public static final String DEFAULT_REQ_PARAM_NAME_LOGOUT_REQUEST = "logoutRequest";
 
     public static final String PROP_AUTHENTICATION_SESSION_ATTRIBUTE_NAMES = "authenticationSessionAttributeNames.target";
 
