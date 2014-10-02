@@ -16,6 +16,9 @@
  */
 package org.everit.osgi.authentication.cas.internal;
 
+/**
+ * Exception to throw when a CAS service ticket validation fails.
+ */
 public class TicketValidationException extends Exception {
 
     /**
@@ -23,6 +26,12 @@ public class TicketValidationException extends Exception {
      */
     private static final long serialVersionUID = -3180080337626141284L;
 
+    /**
+     * Constructor.
+     *
+     * @param reason
+     *            The message sent by the CAS server why ticket validation failed.
+     */
     public TicketValidationException(final String reason) {
         super("Failed to validate ticket: [" + reason + "]");
     }

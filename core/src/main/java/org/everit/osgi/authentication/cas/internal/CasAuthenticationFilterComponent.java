@@ -65,18 +65,34 @@ import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
 /**
- * A {@link Filter} that supports CAS authentication. The following cases are handled by this component:
+ * A component that supports CAS authentication. The following cases are handled by this component:
  * <ul>
  * <li><b>CAS service ticket validation</b>: If the request contains a CAS service ticket, it will be validated on the
  * CAS server by invoking its service ticket validation URL. If the ticket is valid and the returned principal
  * (username) can be mapped to a Resource ID, then the Resource ID will be assigned to the session.</li>
  * <li><b>CAS logout request processing</b>: If the request is a CAS logout request, then the session assigned to the
- * service ticket (received in the logout request) will invalidated. The CAS server sends the logout request
+ * service ticket (received in the logout request) will be invalidated. The CAS server sends the logout request
  * asynchronously to the clients, therefore the session of the logout request is not the same as the session of the
  * user. The mapping of service tickets and sessions are handled by the {@link CasHttpSessionRegistry}.</li>
  * </ul>
+ * <p>
+ * <b>Implemented interfaces</b>
+ * </p>
+ * <ul>
+ * <li><b>{@link Filter}</b>: Handles the CAS service ticket validation and CAS logout request processing.</li>
+ * <li><b>{@link ServletContextListener}</b>: Registers and removes the {@link CasHttpSessionRegistry} to and from the
+ * {@link ServletContext}.</li>
+ * <li><b>{@link HttpSessionListener}</b>: Clears the {@link CasHttpSessionRegistry} when a {@link HttpSession} is
+ * invalidated.</li>
+ * <li><b>{@link HttpSessionAttributeListener}</b>: Registers and removes the {@link CasHttpSessionActivationListener}
+ * to and from the {@link HttpSession} because it IS NOT {@link java.io.Serializable} and cannot be
+ * instantiated/deserialize by a non-OSGi technology. Class loading problems can occur when deserializing this
+ * {@link java.util.EventListener} if it is still in the {@link HttpSession} during serialization.</li>
+ * </ul>
+ * <p>
  * It is recommended to use this component in pair with <a
  * href="https://github.com/everit-org/authentication-http-session">authentication-http-session</a>
+ * </p>
  */
 @Component(name = CasAuthenticationConstants.SERVICE_FACTORYPID_CAS_AUTHENTICATION_FILTER, metatype = true,
         configurationFactory = true, policy = ConfigurationPolicy.REQUIRE, immediate = true)
@@ -103,14 +119,37 @@ public class CasAuthenticationFilterComponent implements
         HttpSessionListener,
         HttpSessionAttributeListener {
 
+    /**
+     * The template of the CAS service ticket validation URL. Parameters in order:
+     * <ul>
+     * <li>1: CAS server service ticket validation URL, for e.g.: https://mycas.com/cas/serviceValidate</li>
+     * <li>2: The URL encoded service URL, for e.g.: http://myapp.com/hello?foo=bar. The user will be redirected to this
+     * URL after a successful validation.</li>
+     * <li>3: The service ticket sent by the CAS server.</li>
+     * </ul>
+     */
     private static final String SERVICE_TICKET_VALIDATOR_URL_TEMPLATE = "%1$s?service=%2$s&ticket=%3$s";
 
+    /**
+     * The element name in logout request sent by the CAS server that contains the invalidated service ticket.
+     */
     private static final String SESSION_INDEX = "SessionIndex";
 
+    /**
+     * The element name in the successful service ticket validation response sent by the CAS server that contains the
+     * name/principal of the authenticated user.
+     */
     private static final String USER = "user";
 
+    /**
+     * The element name in the failed service ticket validation response sent by the CAS server that contains the
+     * message why the authentication failed.
+     */
     private static final String AUTHENTICATION_FAILURE = "authenticationFailure";
 
+    /**
+     * The request parameter name used to specify the locale of the user when communicating with the CAS server.
+     */
     private static final String LOCALE = "locale";
 
     @Reference(bind = "setAuthenticationSessionAttributeNames")
@@ -125,8 +164,14 @@ public class CasAuthenticationFilterComponent implements
     @Reference(bind = "setLogService")
     private LogService logService;
 
+    /**
+     * The service ticket validation URL of the CAS server.
+     */
     private String casServiceTicketValidatorUrl;
 
+    /**
+     * The URL where the user will be redirected in case of failures.
+     */
     private String failureUrl;
 
     private String requestParamNameServiceTicket;
@@ -152,15 +197,16 @@ public class CasAuthenticationFilterComponent implements
     public void attributeAdded(final HttpSessionBindingEvent event) {
         String addedAttributeName = event.getName();
         if (addedAttributeName.startsWith(CasHttpSessionActivationListener.SESSION_ATTR_NAME_SERVICE_PID_PREFIX)) {
+
             String servicePid = (String) event.getValue();
+            String sessionAttrNameInstance = CasHttpSessionActivationListener.createSessionAttrNameInstance(servicePid);
+
             HttpSession httpSession = event.getSession();
+            if (httpSession.getAttribute(sessionAttrNameInstance) == null) {
 
-            String instanceSessionAttrName = CasHttpSessionActivationListener.getInstanceSessionAttrName(servicePid);
-            if (httpSession.getAttribute(instanceSessionAttrName) == null) {
                 CasHttpSessionActivationListener.registerInstance(servicePid, httpSession);
-
                 String attributeNameToRemove =
-                        CasHttpSessionActivationListener.getServicePidSessionAttrName(servicePid);
+                        CasHttpSessionActivationListener.createSessionAttrNameServicePid(servicePid);
                 if (attributeNameToRemove.equals(addedAttributeName)) {
                     httpSession.removeAttribute(attributeNameToRemove);
                 }

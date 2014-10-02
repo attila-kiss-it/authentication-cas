@@ -25,8 +25,9 @@ import javax.servlet.ServletContext;
 import javax.servlet.http.HttpSession;
 
 /**
- * A {@link HttpSession} registry used for CAS authentication. The session is stored when a service ticket is validated
- * and a session is removed when a service ticket is invalidated.
+ * A registry of {@link HttpSession}s used for CAS authentication. The instance of this registry is stored in the
+ * {@link ServletContext} identified by a unique Service PID. A session is stored in the registry when a service ticket
+ * is validated and a session is removed when a service ticket is invalidated.
  * <p>
  * <b>Distributed environments</b>
  * </p>
@@ -38,70 +39,134 @@ import javax.servlet.http.HttpSession;
  * the nodes. This filter will remove the session from the registry and invalidates it.
  * </p>
  * <p>
- * <b>Sticky sessions</b>
+ * <b>Persistent sessions</b>
  * </p>
  * <p>
- * If a node is restarted and persistent session manager is used, then the registry WILL NOT be rebuilt. In that case if
- * a CAS logout request is received after the restart, no session invalidation can be done by the filter (because there
- * are no sessions in the registry). Therefore the users "assigned" to that node are still logged in.
- * </p>
- * <p>
- * <b>Implementation</b>
- * </p>
- * <p>
- * The implementation MUST take care of the lifecycle of the {@link HttpSession}. It is recommended to implement the
- * {@link javax.servlet.http.HttpSessionListener} interface as well to clear the registry if a session is destroyed.
+ * If a node is restarted and a persistent session manager is used, then the registry can be rebuilt by invoking
+ * {@link #putSession(HttpSession)} and {@link #removeBySession(HttpSession)} methods.
  * </p>
  */
 public final class CasHttpSessionRegistry {
 
+    /**
+     * Creates the servlet context attribute name of the {@link CasHttpSessionRegistry} instance stored in the
+     * {@link ServletContext}.
+     *
+     * @param servicePid
+     *            the Service PID of the OSGi service that handles the CAS authentication. Used in the servlet context
+     *            attribute name to guarantee its uniqueness.
+     * @return the created servlet context attribute name
+     */
+    private static String createServletContextAttrNameInstance(final String servicePid) {
+        return SERVLET_CONTEXT_ATTR_NAME_INSTANCE_PREFIX + servicePid;
+    }
+
+    /**
+     * Returns an instance stored in {@link ServletContext} with the attribute name constructed from the Service PID.
+     *
+     * @param servicePid
+     *            the Service PID of the OSGi service that handles the CAS authentication. Used to construct the
+     *            {@link ServletContext} attribute name of the {@link CasHttpSessionRegistry}.
+     * @param servletContext
+     *            the {@link ServletContext} that stores the instance
+     * @return the <code>non-null</code> {@link CasHttpSessionRegistry}
+     * @throws IllegalStateException
+     *             if the instance is not available
+     */
     public static CasHttpSessionRegistry getInstance(final String servicePid, final ServletContext servletContext) {
-        return CasHttpSessionRegistry.getOptionalInstance(servicePid, servletContext)
-                .orElseThrow(() -> {
-                    String servletContextAttrName =
-                            CasHttpSessionRegistry.getServletContextAttrName(servicePid);
-                    return new IllegalStateException("[" + servletContextAttrName + "]"
-                            + " ServletContext attribute not availbale");
-                });
+        Optional<CasHttpSessionRegistry> optionalInstance =
+                CasHttpSessionRegistry.getOptionalInstance(servicePid, servletContext);
+        return optionalInstance.orElseThrow(() -> {
+            String servletContextAttrName = CasHttpSessionRegistry.createServletContextAttrNameInstance(servicePid);
+            return new IllegalStateException("[" + servletContextAttrName + "] "
+                    + "ServletContext attribute not availbale. "
+                    + "Possible cause: ServletContext is not initialized by "
+                    + "CasAuthenticationFilterComponent yet (the sessions was restored before "
+                    + "ServletContext initialization).");
+        });
     }
 
     private static Optional<CasHttpSessionRegistry> getOptionalInstance(final String servicePid,
             final ServletContext servletContext) {
-        String servletContextAttrName = CasHttpSessionRegistry.getServletContextAttrName(servicePid);
+        String servletContextAttrName = CasHttpSessionRegistry.createServletContextAttrNameInstance(servicePid);
         return Optional.ofNullable((CasHttpSessionRegistry) servletContext.getAttribute(servletContextAttrName));
     }
 
-    private static String getServletContextAttrName(final String servicePid) {
-        return CasHttpSessionRegistry.class.getName() + "." + servicePid;
-    }
-
+    /**
+     * Registers a new instance to the {@link ServletContext} with the attribute name constructed from the Service PID.
+     *
+     * @param servicePid
+     *            the Service PID of the OSGi service that handles the CAS authentication. Used to construct the
+     *            {@link ServletContext} attribute name of the {@link CasHttpSessionRegistry}.
+     * @param servletContext
+     *            the {@link ServletContext} where the new instance will be registered
+     * @throws IllegalStateException
+     *             if an instance is already registered with the Service PID
+     */
     public static void registerInstance(final String servicePid, final ServletContext servletContext) {
-        String servletContextAttrName = CasHttpSessionRegistry.getServletContextAttrName(servicePid);
-        CasHttpSessionRegistry.getOptionalInstance(servicePid, servletContext)
-                .ifPresent((instance) -> {
-                    throw new IllegalStateException("ServletContext attribute [" + servletContextAttrName + "]"
-                            + " already registered");
-                });
+        String servletContextAttrName = CasHttpSessionRegistry.createServletContextAttrNameInstance(servicePid);
+        Optional<CasHttpSessionRegistry> optionalInstance =
+                CasHttpSessionRegistry.getOptionalInstance(servicePid, servletContext);
+        optionalInstance.ifPresent((instance) -> {
+            throw new IllegalStateException("ServletContext attribute [" + servletContextAttrName + "] "
+                    + "already registered. Possible cause: the EventListeners implemented by "
+                    + "CasAuthenticationFilterComponent is registered multiple times to the "
+                    + "ServletContextHandler.");
+        });
         servletContext.setAttribute(servletContextAttrName, new CasHttpSessionRegistry());
     }
 
+    /**
+     * Removes the instance from the {@link ServletContext} if available.
+     *
+     * @param servicePid
+     *            the Service PID of the OSGi service that handles the CAS authentication. Used to construct the
+     *            {@link ServletContext} attribute name of the {@link CasHttpSessionRegistry}.
+     * @param servletContext
+     *            the instance will be removed from this servlet context
+     */
     public static void removeInstance(final String servicePid, final ServletContext servletContext) {
-        String servletContextAttrName = CasHttpSessionRegistry.getServletContextAttrName(servicePid);
+        String servletContextAttrName = CasHttpSessionRegistry.createServletContextAttrNameInstance(servicePid);
         servletContext.removeAttribute(servletContextAttrName);
     }
 
-    private static final String SERVICE_TICKET_SESSION_ATTR_NAME = "org.everit.osgi.authentication.cas.ServiceTicket";
+    /**
+     * The servlet context attribute name prefix used for the {@link CasHttpSessionRegistry} instance.
+     */
+    private static final String SERVLET_CONTEXT_ATTR_NAME_INSTANCE_PREFIX =
+            CasHttpSessionRegistry.class.getName() + ".";
 
+    /**
+     * The session attribute name used for the service ticket.
+     */
+    private static final String SESSION_ATTR_NAME_SERVICE_TICKET =
+            "org.everit.osgi.authentication.cas.ServiceTicket";
+
+    /**
+     * The cache of the sessionIds mapped by the CAS service tickets. Key: CAS service ticket, Value: HTTP Session id.
+     * In case of CAS logout the CAS server invalidates the service ticket and sends it in a logout request
+     * asynchronously. With this map it is possible to retrieve the session ID belonging to a service ticket.
+     */
     private final Map<String, String> sessionIdsByServiceTickets = new ConcurrentHashMap<>();
 
+    /**
+     * The cache of the {@link HttpSession}s mapped by the session IDs. Key: session ID, Value: {@link HttpSession}. In
+     * case of CAS logout the CAS server invalidates the service ticket and sends it in a logout request asynchronously.
+     * Using the {@link #sessionIdsByServiceTickets} map it is possible to retrieve the Session ID belonging to a
+     * service ticket and with this map it is possible to retrieve the HttpSession by that Session ID.
+     */
     private final Map<String, HttpSession> sessionsBySessionId = new ConcurrentHashMap<>();
 
+    /**
+     * Private constructor. Use {@link #registerInstance(String, ServletContext)} to instantiate and register this
+     * {@link CasHttpSessionRegistry} to the servlet context.
+     */
     private CasHttpSessionRegistry() {
     }
 
     /**
-     * Adds the session to the registry identified by the CAS service ticket. This method is invoked when the CAS
-     * service ticket is validated successfully on the CAS server.
+     * Adds the session to the registry identified by the CAS service ticket. Must be invoked when the CAS service
+     * ticket is validated successfully on the CAS server.
      *
      * @param serviceTicket
      *            the validated CAS service ticket
@@ -115,19 +180,31 @@ public final class CasHttpSessionRegistry {
         Objects.requireNonNull(serviceTicket, "serviceTicket cannot be null");
         Objects.requireNonNull(httpSession, "httpSession cannot be null");
 
-        httpSession.setAttribute(SERVICE_TICKET_SESSION_ATTR_NAME, serviceTicket);
+        httpSession.setAttribute(SESSION_ATTR_NAME_SERVICE_TICKET, serviceTicket);
         String sessionId = httpSession.getId();
         sessionsBySessionId.put(sessionId, httpSession);
         sessionIdsByServiceTickets.put(serviceTicket, sessionId);
     }
 
+    /**
+     * Adds the session that already contains a CAS service ticket to the registry. Must be invoked when a persistent
+     * session is restored and has just been activated.
+     *
+     * @param httpSession
+     *            the restored {@link HttpSession}
+     * @throws NullPointerException
+     *             if the <code>httpSession</code> argument is <code>null</code> or it does not contain a CAS service
+     *             ticket with attribute name {@value #SESSION_ATTR_NAME_SERVICE_TICKET}
+     */
     public void putSession(final HttpSession httpSession) {
-        String serviceTicket = (String) httpSession.getAttribute(SERVICE_TICKET_SESSION_ATTR_NAME);
+        Objects.requireNonNull(httpSession, "httpSession cannot be null");
+        String serviceTicket = (String) httpSession.getAttribute(SESSION_ATTR_NAME_SERVICE_TICKET);
         put(serviceTicket, httpSession);
     }
 
     /**
-     * Removes the session from the registry is available. Invoked when a CAS server invalidates a service ticket.
+     * Removes the session from the registry if available. Must be invoked when a CAS server invalidates a service
+     * ticket. Using this method the caches will be cleaned and the returned {@link HttpSession} can be invalidated.
      *
      * @param serviceTicket
      *            the invalidated service ticket
@@ -144,13 +221,21 @@ public final class CasHttpSessionRegistry {
         return Optional.ofNullable(sessionsBySessionId.remove(sessionId));
     }
 
+    /**
+     * Removes the session from the registry if available. Must be invoked when a session is destroyed or a persistent
+     * session will be persisted and is about to be passivated.
+     *
+     * @param httpSession
+     *            the {@link HttpSession} to remove that optionally contains a CAS service ticket with attribute name
+     *            {@value #SESSION_ATTR_NAME_SERVICE_TICKET}
+     */
     public void removeBySession(final HttpSession httpSession) {
         Objects.requireNonNull(httpSession, "httpSession cannot be null");
         String sessionId = httpSession.getId();
 
         sessionsBySessionId.remove(sessionId);
 
-        Optional.ofNullable(httpSession.getAttribute(SERVICE_TICKET_SESSION_ATTR_NAME))
+        Optional.ofNullable(httpSession.getAttribute(SESSION_ATTR_NAME_SERVICE_TICKET))
                 .ifPresent((serviceTicket) -> sessionIdsByServiceTickets.remove(serviceTicket));
     }
 
