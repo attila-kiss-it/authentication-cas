@@ -80,18 +80,31 @@ Initialize a *ServletContextHandler* the handles the registered *Filters*,
 *Servlets* and *EnventListeners*:
 
 ```java
-ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
+// Instantiate a ServletContextHandler that support HTTP sessions.
+ServletContextHandler servletContextHandler = 
+	new ServletContextHandler(ServletContextHandler.SESSIONS);
 
+// The order of the filter registration is important.
+
+// Register the sessionAuthenticationFilter with URL pattern "/*".
 servletContextHandler.addFilter(
 	new FilterHolder(sessionAuthenticationFilter), "/*", null);
+
+// Register the casAuthenticationFilter with URL pattern "/*".
 servletContextHandler.addFilter(
 	new FilterHolder(casAuthenticationFilter), "/*", null);
+
+// Register the sessionLogoutServlet with URL path "/logout".
 servletContextHandler.addServlet(
 	new ServletHolder("sessionLogoutServlet", sessionLogoutServlet), "/logout");
 
+// Register the casAuthenticationEventListener to the ServletContextHandler. 
+// The CasAuthenticationComponent implements the ServletContextListener 
+// interface, this will be registered in this case.
 servletContextHandler.addEventListener(
 	casAuthenticationEventListener);
 
+// Register the ServletContextHandler to the Server.
 server.setHandler(servletContextHandler);
 ```
 
@@ -100,7 +113,8 @@ Initialize a persistent session manager:
 ```java
 HashSessionManager sessionManager = new HashSessionManager();
 
-sessionManager.setStoreDirectory(new File("/the/jetty/sessions/will/be/stored/here/"));
+sessionManager.setStoreDirectory(
+	new File("/the/jetty/sessions/will/be/stored/here/"));
 sessionManager.setIdleSavePeriod(1);
 sessionManager.setSavePeriod(1);
 sessionManager.setLazyLoad(true); // required to initialize the servlet context before restoring the sessions
