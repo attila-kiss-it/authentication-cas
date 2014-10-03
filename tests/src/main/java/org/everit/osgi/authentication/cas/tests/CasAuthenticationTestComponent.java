@@ -90,7 +90,7 @@ import org.osgi.service.log.LogService;
         @Property(name = "sessionAuthenticationFilter.target"),
         @Property(name = "sessionLogoutServlet.target"),
         @Property(name = "casAuthenticationFilter.target"),
-        @Property(name = "casEventListener.target"),
+        @Property(name = "casAuthenticationEventListener.target"),
         @Property(name = "logService.target")
 })
 @Service(value = CasAuthenticationTestComponent.class)
@@ -131,8 +131,8 @@ public class CasAuthenticationTestComponent {
     @Reference(bind = "setCasAuthenticationFilter")
     private Filter casAuthenticationFilter;
 
-    @Reference(bind = "setCasEventListener")
-    private EventListener casEventListener;
+    @Reference(bind = "setCasAuthenticationEventListener")
+    private EventListener casAuthenticationEventListener;
 
     @Reference(bind = "setLogService")
     private LogService logService;
@@ -178,7 +178,7 @@ public class CasAuthenticationTestComponent {
         servletContextHandler.addServlet(
                 new ServletHolder("sessionLogoutServlet", sessionLogoutServlet), LOGOUT_SERVLET_ALIAS);
 
-        servletContextHandler.addEventListener(casEventListener);
+        servletContextHandler.addEventListener(casAuthenticationEventListener);
         server.setHandler(servletContextHandler);
 
         // Initialize session management
@@ -188,7 +188,7 @@ public class CasAuthenticationTestComponent {
         sessionManager.setIdleSavePeriod(1);
         sessionManager.setSavePeriod(1);
         sessionManager.setLazyLoad(true); // required to initialize the servlet context before restoring the sessions
-        sessionManager.addEventListener(casEventListener);
+        sessionManager.addEventListener(casAuthenticationEventListener);
 
         SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
         sessionHandler.setSessionManager(sessionManager);
@@ -416,12 +416,12 @@ public class CasAuthenticationTestComponent {
         EntityUtils.consume(httpResponse.getEntity());
     }
 
-    public void setCasAuthenticationFilter(final Filter casAuthenticationFilter) {
-        this.casAuthenticationFilter = casAuthenticationFilter;
+    public void setCasAuthenticationEventListener(final EventListener casAuthenticationEventListener) {
+        this.casAuthenticationEventListener = casAuthenticationEventListener;
     }
 
-    public void setCasEventListener(final EventListener casEventListener) {
-        this.casEventListener = casEventListener;
+    public void setCasAuthenticationFilter(final Filter casAuthenticationFilter) {
+        this.casAuthenticationFilter = casAuthenticationFilter;
     }
 
     public void setHelloWorldServlet(final Servlet helloWorldServlet) {
