@@ -59,7 +59,14 @@ Filter sessionAuthenticationFilter = ...
 // of the current user.
 Servlet sessionLogoutServlet = ...
 
+// The casAuthenticationFilter handles the CAS service ticket validation and 
+// CAS logout request processing.
 Filter casAuthenticationFilter = ...
+
+// The casAuthenticationEventListener ensures the operation of the component.
+// This EventListener must be registered exactly twice in case of Jetty:
+//  - to the ServletContextHandler
+//  - to the HashSessionManager
 EventListener casAuthenticationEventListener = ...
 ```
 
