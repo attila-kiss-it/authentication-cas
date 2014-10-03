@@ -46,13 +46,17 @@ Server.
 Get the services of the following interfaces in the way you like:
 
 ```java
-/* sessionAuthenticationFilter and sessionLogoutServlet are provided by the 
-authentication-http-session component, casAuthenticationFilter and 
-casAuthenticationEventListener are provided by this authentication-cas 
-component */
+// sessionAuthenticationFilter and sessionLogoutServlet are provided by the 
+// authentication-http-session component, casAuthenticationFilter and 
+// casAuthenticationEventListener are provided by this authentication-cas 
+// component.
 
-// The sessionAuthenticationFilter is responsible to check the HTTP session
-Filter sessionAuthenticationFilter = ... 
+// The sessionAuthenticationFilter is responsible to check the HTTP session 
+// for an Authenticated Resource ID.
+Filter sessionAuthenticationFilter = ...
+
+// The sessionLogoutServlet is responsible to invalidate the HTTP session
+// of the current user.
 Servlet sessionLogoutServlet = ...
 
 Filter casAuthenticationFilter = ...
