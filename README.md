@@ -2,7 +2,10 @@ authentication-cas
 ==================
 
 Authentication mechanism implemented based on [Everit Authentication][1] in 
-case of using CAS.
+case of using CAS. It is recommended to use this component in combination with
+[authentication-http-session][2] component, check the **Usage** section for 
+more details and check check the javadoc of the 
+*org.everit.osgi.authentication.cas.internal* package.
 
 #Component
 The module contains one Declarative Services component. The component can be 
@@ -38,11 +41,30 @@ two OSGi services:
 
 #Usage
 This usage example demonstrates how to use this component with Jetty Web 
-Server:
+Server.
+
+Get the services of the following interfaces in the way you like:
 
 ```java
-Server server = new Server(8081);
+// provided by [authentication-http-session][2] component
+Filter sessionAuthenticationFilter = ... 
+Servlet sessionLogoutServlet = ...
 
+// provided by this authentication-cas component
+Filter casAuthenticationFilter = ...
+EventListener casAuthenticationEventListener = ...
+```
+
+Initialize the Jetty Web Server on port 8080:
+
+```java
+Server server = new Server(8080);
+```
+
+Initialize a *ServletContextHandler* the handles the registered *Filters*, 
+*Servlets* and *EnventListeners*:
+
+```java
 ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
 
 servletContextHandler.addFilter(
@@ -56,7 +78,11 @@ servletContextHandler.addEventListener(
 	casAuthenticationEventListener);
 
 server.setHandler(servletContextHandler);
+```
 
+Initialize a persistent session manager:
+
+```java
 HashSessionManager sessionManager = new HashSessionManager();
 
 sessionManager.setStoreDirectory(new File("/the/jetty/sessions/will/be/stored/here/"));
@@ -67,11 +93,15 @@ sessionManager.addEventListener(casAuthenticationEventListener);
 
 SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
 sessionHandler.setSessionManager(sessionManager);
+```
 
+Start the Jetty Web Server:
+
+```java
 server.start();
 ```
 
-A usage example can be found under the integration tests project in the 
+A full usage example can be found under the integration tests project in the 
 *org.everit.osgi.authentication.cas.tests.CasAuthenticationTestComponent* 
 class.
 
@@ -80,4 +110,4 @@ Full authentication concept is available on blog post
 [Everit Authentication][1].
 
 [1]: http://everitorg.wordpress.com/2014/07/31/everit-authentication/
-
+[2]: https://github.com/everit-org/authentication-http-session
