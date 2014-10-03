@@ -40,7 +40,7 @@ two OSGi services:
 This usage example demonstrates how to use this component with Jetty Web 
 Server:
 
-'''java
+```java
 Server server = new Server(8081);
 
 ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
@@ -69,7 +69,7 @@ SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
 sessionHandler.setSessionManager(sessionManager);
 
 server.start();
-'''
+```
 
 A usage example can be found under the integration tests project in the 
 *org.everit.osgi.authentication.cas.tests.CasAuthenticationTestComponent* 
