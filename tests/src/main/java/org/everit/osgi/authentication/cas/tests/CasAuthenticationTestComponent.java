@@ -19,6 +19,7 @@ package org.everit.osgi.authentication.cas.tests;
 import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
@@ -63,6 +64,8 @@ import org.apache.http.impl.client.DefaultRedirectStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
+import org.eclipse.jetty.server.AbstractNetworkConnector;
+import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.session.HashSessionManager;
 import org.eclipse.jetty.server.session.SessionHandler;
@@ -147,6 +150,8 @@ public class CasAuthenticationTestComponent {
 
     private Server server;
 
+    private int port;
+
     private BundleContext bundleContext;
 
     private HttpClientContext httpClientContext;
@@ -164,7 +169,7 @@ public class CasAuthenticationTestComponent {
         initSecureHttpClient();
         pingCasLoginUrl();
 
-        server = new Server(8081); // TODO use random port
+        server = new Server(0);
 
         // Initialize servlet context
         ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
@@ -185,8 +190,6 @@ public class CasAuthenticationTestComponent {
         HashSessionManager sessionManager = new HashSessionManager();
         String sessionStoreDirecotry = System.getProperty("jetty.session.store.directory");
         sessionManager.setStoreDirectory(new File(sessionStoreDirecotry));
-        sessionManager.setIdleSavePeriod(1);
-        sessionManager.setSavePeriod(1);
         sessionManager.setLazyLoad(true); // required to initialize the servlet context before restoring the sessions
         sessionManager.addEventListener(casAuthenticationEventListener);
 
@@ -195,7 +198,10 @@ public class CasAuthenticationTestComponent {
 
         server.start();
 
-        String testServerURI = server.getURI().toString();
+        URI serverUri = server.getURI();
+        port = serverUri.getPort();
+
+        String testServerURI = serverUri.toString();
         String testServerURL = testServerURI.substring(0, testServerURI.length() - 1);
 
         helloServiceUrl = testServerURL + HELLO_SERVLET_ALIAS;
@@ -432,6 +438,15 @@ public class CasAuthenticationTestComponent {
         this.logService = logService;
     }
 
+    private void setPort() {
+        Connector[] connectors = server.getConnectors();
+        for (Connector connector : connectors) {
+            if (connector instanceof AbstractNetworkConnector) {
+                ((AbstractNetworkConnector) connector).setPort(port);
+            }
+        }
+    }
+
     public void setSessionAuthenticationFilter(final Filter sessionAuthenticationFilter) {
         this.sessionAuthenticationFilter = sessionAuthenticationFilter;
     }
@@ -480,13 +495,13 @@ public class CasAuthenticationTestComponent {
         hello(CasResourceIdResolver.JOHNDOE);
 
         server.stop();
-        // server.destroy();
         try {
             hello(CasResourceIdResolver.JOHNDOE);
             Assert.fail();
         } catch (HttpHostConnectException e) {
             Assert.assertTrue(e.getMessage().contains("Connection refused"));
         }
+        setPort(); // required to set the port of the server to the selected port in the activate method
         server.start();
 
         hello(CasResourceIdResolver.JOHNDOE);
