@@ -52,7 +52,8 @@ Get the services of the following interfaces in the way you like:
 // component.
 
 // The sessionAuthenticationFilter is responsible to check the HTTP session 
-// for an Authenticated Resource ID.
+// for an Authenticated Resource ID and execute the authenticated process in 
+// the name of it if available.
 Filter sessionAuthenticationFilter = ...
 
 // The sessionLogoutServlet is responsible to invalidate the HTTP session
@@ -113,26 +114,59 @@ Initialize a persistent session manager:
 ```java
 HashSessionManager sessionManager = new HashSessionManager();
 
+// Store the sessions in a file system.
 sessionManager.setStoreDirectory(
 	new File("/the/jetty/sessions/will/be/stored/here/"));
-sessionManager.setIdleSavePeriod(1);
-sessionManager.setSavePeriod(1);
-sessionManager.setLazyLoad(true); // required to initialize the servlet context before restoring the sessions
+
+// !!!-IMPORTANT-!!! Lazy load is required to initialize the servlet context 
+// before restoring the sessions.
+sessionManager.setLazyLoad(true);
+
+// Register the EventListener to the session manager.
 sessionManager.addEventListener(casAuthenticationEventListener);
 
+// Register the session manager to the session handler.
 SessionHandler sessionHandler = servletContextHandler.getSessionHandler();
 sessionHandler.setSessionManager(sessionManager);
 ```
 
-Start the Jetty Web Server:
+Start (and optionally join) the Jetty Web Server:
 
 ```java
 server.start();
+
+// Optionally to have the current thread wait until the server is running.
+server.join();
 ```
+
+Finally we have a Jetty Web Server with persistent session management:
+ - The server will accept and check all the requests that match the "/*" 
+ pattern.
+ - Redirecting the user to the CAS login page (with a service URL) if 
+ authentication is required is the responsibility of the application, not 
+ covered in this example.
+ - Any service URL (the URL which identifies the service in the CAS server and 
+ the user will be redirected to this page after a successful CAS login) will 
+ be accepted because the *casAuthenticationFilter* listens on patter "/*". The 
+ filter will validate the service ticket provided by the CAS server and will 
+ invalidate the session of the user if a logout request is sent by the CAS 
+ server.
+ - Invoking the *sessionLogoutServlet* on URL */logout* will invalidate the 
+ session of the user managed by the session manager registered to Jetty Web 
+ Server. The user remains logged in to CAS. If a new request is sent to the 
+ Jetty Web Server, a new session will be created and assigned to the same user 
+ because of a CAS cookie still exists and valid. It is the responsibility of 
+ the application to *Single Logout (SLO)* the user (if required) by invoking 
+ the CAS logout URL on the CAS server.
 
 A full usage example can be found under the integration tests project in the 
 *org.everit.osgi.authentication.cas.tests.CasAuthenticationTestComponent* 
 class.
+
+#Useful CAS links
+ - [CAS 4.0.0 home page][3]
+ - [CAS flow diagram][4]
+ - [Logout and Single Logout (SLO)][5]
 
 #Concept
 Full authentication concept is available on blog post 
@@ -140,3 +174,6 @@ Full authentication concept is available on blog post
 
 [1]: http://everitorg.wordpress.com/2014/07/31/everit-authentication/
 [2]: https://github.com/everit-org/authentication-http-session
+[3]: http://jasig.github.io/cas/4.0.0/index.html
+[4]: http://jasig.github.io/cas/4.0.0/images/cas_flow_diagram.png
+[5]: http://jasig.github.io/cas/4.0.0/installation/Logout-Single-Signout.html
