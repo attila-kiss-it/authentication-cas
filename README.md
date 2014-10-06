@@ -25,10 +25,12 @@ two OSGi services:
  (service.description)
  - **CAS service ticket validation URL**: The URL provided by the CAS server 
  for service ticket validation. HTTPS protocol (and java keystore 
- configuration) is recommended for security reasons. 
+ configuration) is recommended for security reasons. For e.g. 
+ "https://cas.example.com/cas/serviceValidate".
  (cas.service.ticket.validation.url)
  - **Failure URL**: The URL where the user will be redirected in case of 
- failed request processing. (failure.url)
+ failed request processing. For e.g. "/failed.html", the user will be 
+ redirected to "http://app.example.com/failed.html" (failure.url)
  - **AuthenticationSessionAttributeNames OSGi filter**: OSGi Service filter 
  expression for AuthenticationSessionAttributeNames instance. 
  (authenticationSessionAttributeNames.target)
@@ -142,22 +144,28 @@ server.join();
 Finally we have a Jetty Web Server with persistent session management:
  - The server will accept and check all the requests that match the "/*" 
  pattern.
- - Redirecting the user to the CAS login page (with a service URL) if 
- authentication is required is the responsibility of the application, not 
- covered in this example.
+ - Redirecting the user to the CAS login page (with a service URL, for e.g. 
+ "https://cas.example.com/cas/login?service=http%3A%2F%2Fapp.example.com%2F", 
+ note that the URL in the service parameter is URL encoded) if authentication 
+ is required is the responsibility of the application, not covered by this 
+ example.
  - Any service URL (the URL which identifies the service in the CAS server and 
- the user will be redirected to this page after a successful CAS login) will 
- be accepted because the *casAuthenticationFilter* listens on patter "/*". The 
- filter will validate the service ticket provided by the CAS server and will 
- invalidate the session of the user if a logout request is sent by the CAS 
- server.
- - Invoking the *sessionLogoutServlet* on URL */logout* will invalidate the 
- session of the user managed by the session manager registered to Jetty Web 
- Server. The user remains logged in to CAS. If a new request is sent to the 
- Jetty Web Server, a new session will be created and assigned to the same user 
- because of a CAS cookie still exists and valid. It is the responsibility of 
- the application to *Single Logout (SLO)* the user (if required) by invoking 
- the CAS logout URL on the CAS server.
+ the user will be redirected to this page after a successful CAS login, i.e. 
+ GET parameters in the URL is also supported) will be accepted because the 
+ *casAuthenticationFilter* listens on patter "/*". The filter will validate 
+ the service ticket provided by the CAS server and will invalidate the session 
+ of the user if a logout request is sent by the CAS server.
+ - Invoking the *sessionLogoutServlet* on URL "http://app.example.com/logout" 
+ will invalidate the session of the user managed by the session manager 
+ registered to Jetty Web Server. The user remains logged in to CAS. If a new 
+ request is sent to the Jetty Web Server, a new session will be created and 
+ assigned to the same user because of a CAS cookie still exists and valid. 
+ It is the responsibility of the application to *Single Logout (SLO)* the user 
+ (if required) by invoking the CAS logout URL (for e.g. 
+ "https://cas.example.com/cas/logout") on the CAS server. Invoking CAS logout 
+ also invalidates the session of the user because the 
+ *casAuthenticationFilter* processes the logout request sent by the CAS 
+ server (back channel communication).
 
 A full usage example can be found under the integration tests project in the 
 *org.everit.osgi.authentication.cas.tests.CasAuthenticationTestComponent* 
