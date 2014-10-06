@@ -159,8 +159,8 @@
                 <jetty.session.store.directory>${project.build.directory}/jetty-sessions</jetty.session.store.directory>
               </systemProperties>
               <vmOptions>
-                <vmOption>-Xdebug</vmOption>
-                <vmOption>-Xrunjdwp:server=y,transport=dt_socket,address=1044,suspend=n</vmOption>
+<!--                 <vmOption>-Xdebug</vmOption> -->
+<!--                 <vmOption>-Xrunjdwp:server=y,transport=dt_socket,address=1044,suspend=n</vmOption> -->
               </vmOptions>
             </environment>
           </environments>
