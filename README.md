@@ -141,17 +141,18 @@ server.start();
 server.join();
 ```
 
-Finally we have a Jetty Web Server with persistent session management:
- - The server will accept and check all the requests that match the "/*" 
- pattern.
+Finally we have a Jetty Web Server with persistent session management 
+integrated to a CAS server that handles authentication. Some important notes: 
+ - The server will accept and the filters will check all the requests that 
+ match the "/*" pattern.
  - Redirecting the user to the CAS login page (with a service URL, for e.g. 
  "https://cas.example.com/cas/login?service=http%3A%2F%2Fapp.example.com%2F", 
- note that the URL in the service parameter is URL encoded) if authentication 
- is required is the responsibility of the application, not covered by this 
- example.
- - Any service URL (the URL which identifies the service in the CAS server and 
- the user will be redirected to this page after a successful CAS login, i.e. 
- GET parameters in the URL is also supported) will be accepted because the 
+ note that the URL in the service parameter is URL encoded) - if 
+ authentication is required - is the responsibility of the application, not 
+ covered by this example either the component.
+ - Any service URL (The URL which identifies the service in the CAS server and 
+ the user will be redirected to this page after a successful CAS login. GET 
+ parameters in the URL is also supported) will be accepted because the 
  *casAuthenticationFilter* listens on patter "/*". The filter will validate 
  the service ticket provided by the CAS server and will invalidate the session 
  of the user if a logout request is sent by the CAS server.
