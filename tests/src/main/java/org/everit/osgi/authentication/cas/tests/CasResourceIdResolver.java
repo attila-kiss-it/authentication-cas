@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with Everit - CAS authentication tests.  If not, see <http://www.gnu.org/licenses/>.
  */
-package org.everit.osgi.authentication.http.cas.sample;
+package org.everit.osgi.authentication.cas.tests;
 
 import java.util.Optional;
 
@@ -32,10 +32,16 @@ public class CasResourceIdResolver implements ResourceIdResolver {
 
     public static final Optional<Long> JOHNDOE_RESOURCE_ID = Optional.of(123L);
 
+    public static final String JANEDOE = "janedoe";
+
+    public static final Optional<Long> JANEDOE_RESOURCE_ID = Optional.of(456L);
+
     @Override
     public Optional<Long> getResourceId(final String uniqueIdentifier) {
         if (uniqueIdentifier.equals(JOHNDOE)) {
             return JOHNDOE_RESOURCE_ID;
+        } else if (uniqueIdentifier.equals(JANEDOE)) {
+            return JANEDOE_RESOURCE_ID;
         }
         return Optional.empty();
     }

@@ -167,7 +167,7 @@ Finally we have a Jetty Web Server with persistent session management:
  *casAuthenticationFilter* processes the logout request sent by the CAS 
  server (back channel communication).
 
-A full usage example can be found under the integration tests project in the 
+A complex example can be found under the integration tests project in the 
 *org.everit.osgi.authentication.cas.tests.CasAuthenticationTestComponent* 
 class.
 

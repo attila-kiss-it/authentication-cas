@@ -22,7 +22,7 @@ public final class CasAuthenticationConstants {
             "org.everit.osgi.authentication.cas.CasAuthentication";
 
     public static final String DEFAULT_SERVICE_DESCRIPTION_CAS_AUTHENTICATION =
-            "Default CAS Authentication";
+            "Default CAS Authentication Component";
 
     public static final String PROP_CAS_SERVICE_TICKET_VALIDATION_URL = "cas.service.ticket.validation.url";
 

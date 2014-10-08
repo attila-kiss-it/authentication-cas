@@ -14,41 +14,32 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with Everit - CAS authentication tests.  If not, see <http://www.gnu.org/licenses/>.
  */
-package org.everit.osgi.authentication.http.cas.sample;
+package org.everit.osgi.authentication.cas.tests;
 
 import java.io.IOException;
 import java.io.PrintWriter;
 
-import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.felix.scr.annotations.Component;
-import org.apache.felix.scr.annotations.ConfigurationPolicy;
-import org.apache.felix.scr.annotations.Properties;
-import org.apache.felix.scr.annotations.Property;
-import org.apache.felix.scr.annotations.Reference;
-import org.apache.felix.scr.annotations.Service;
 import org.everit.osgi.authentication.context.AuthenticationContext;
 
-@Component(name = "HelloWorldServletComponent", metatype = true,
-        configurationFactory = true, policy = ConfigurationPolicy.REQUIRE)
-@Properties({
-        @Property(name = "authenticationContext.target")
-})
-@Service(value = Servlet.class)
-public class HelloWorldServletComponent extends HttpServlet {
+public class HelloWorldServlet extends HttpServlet {
 
-    private static final long serialVersionUID = -5545883781165913751L;
+    private static final long serialVersionUID = -3769761010329362073L;
 
     public static final String GUEST = "guest";
 
-    public static final String JANEDOE = "janedoe";
+    public static final String UNKNOWN = "unknown";
 
-    @Reference(bind = "setAuthenticationContext")
-    private AuthenticationContext authenticationContext;
+    private final AuthenticationContext authenticationContext;
+
+    public HelloWorldServlet(final AuthenticationContext authenticationContext) {
+        super();
+        this.authenticationContext = authenticationContext;
+    }
 
     @Override
     protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException,
@@ -59,6 +50,8 @@ public class HelloWorldServletComponent extends HttpServlet {
         resp.setContentType("text/plain");
         PrintWriter out = resp.getWriter();
         out.print(userName);
+        out.print("@");
+        out.print(req.getServerName());
     }
 
     private String getUserName(final long currentResourceId) {
@@ -66,12 +59,11 @@ public class HelloWorldServletComponent extends HttpServlet {
             return GUEST;
         } else if (currentResourceId == CasResourceIdResolver.JOHNDOE_RESOURCE_ID.get().longValue()) {
             return CasResourceIdResolver.JOHNDOE;
+        } else if (currentResourceId == CasResourceIdResolver.JANEDOE_RESOURCE_ID.get().longValue()) {
+            return CasResourceIdResolver.JANEDOE;
         } else {
-            return JANEDOE;
+            return UNKNOWN;
         }
     }
 
-    public void setAuthenticationContext(final AuthenticationContext authenticationContext) {
-        this.authenticationContext = authenticationContext;
-    }
 }
