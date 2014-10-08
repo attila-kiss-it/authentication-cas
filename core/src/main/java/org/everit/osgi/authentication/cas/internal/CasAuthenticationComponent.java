@@ -23,7 +23,6 @@ import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.EventListener;
 import java.util.Map;
 
 import javax.servlet.Filter;
@@ -109,7 +108,7 @@ import org.xml.sax.helpers.DefaultHandler;
         @Property(name = CasAuthenticationConstants.PROP_SAX_PARSER_FACTORY),
         @Property(name = CasAuthenticationConstants.PROP_LOG_SERVICE),
 })
-@Service(value = { Filter.class, EventListener.class })
+@Service
 public class CasAuthenticationComponent implements
         Filter,
         ServletContextListener,
