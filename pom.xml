@@ -92,6 +92,13 @@
           </instructions>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <configuration>
+          <excludeFilterFile>authentication-cas-findbugs-exclude-filter.xml</excludeFilterFile>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 
