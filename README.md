@@ -4,42 +4,7 @@ authentication-cas
 Authentication mechanism implemented based on [Everit Authentication][1] in 
 case of using CAS. It is recommended to use this component in combination with
 [authentication-http-session][2] component, check the **Usage** section for 
-more details and check check the javadoc of the 
-*org.everit.osgi.authentication.cas.internal* package.
-
-#Component
-The module contains one Declarative Services component. The component can be 
-instantiated multiple times via Configuration Admin. The component registers 
-two OSGi services:
- - **javax.servlet.Filter**: Handles the CAS service ticket validation and CAS 
- logout request processing.
- - **java.util.EventListener**: As a **ServletContextListener**, a 
- **HttpSessionListener** and a **HttpSessionAttributeListener** to handle 
- ServletContext, HttpSession and HttpSession attribute related events that 
- ensures the operation of the component. For more information check the 
- javadoc of the *org.everit.osgi.authentication.cas.internal* package.
-
-#Configuration
- - **Service Description**: The description of this component configuration. 
- It is used to easily identify the services registered by this component. 
- (service.description)
- - **CAS service ticket validation URL**: The URL provided by the CAS server 
- for service ticket validation. HTTPS protocol (and java keystore 
- configuration) is recommended for security reasons. For e.g. 
- "https://cas.example.com/cas/serviceValidate".
- (cas.service.ticket.validation.url)
- - **Failure URL**: The URL where the user will be redirected in case of 
- failed request processing. For e.g. "/failed.html", the user will be 
- redirected to "http://app.example.com/failed.html" (failure.url)
- - **AuthenticationSessionAttributeNames OSGi filter**: OSGi Service filter 
- expression for AuthenticationSessionAttributeNames instance. 
- (authenticationSessionAttributeNames.target)
- - **ResourceIdResolver OSGi filter**: OSGi Service filter expression for 
- ResourceIdResolver instance. (resourceIdResolver.target)
- - **SAXParserFactory OSGi filter**: OSGi Service filter expression for 
- SAXParserFactory instance. (saxParserFactory.target)
- - **LogService OSGi filter**: OSGi Service filter expression for LogService 
- instance. (logService.target)
+more details and check check the javadoc of the *org.everit.authentication.cas* package.
 
 #Usage
 This usage example demonstrates how to use this component with Jetty Web 
