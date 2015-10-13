@@ -133,9 +133,7 @@ integrated to a CAS server that handles authentication. Some important notes:
  *casAuthenticationFilter* processes the logout request sent by the CAS 
  server (back channel communication).
 
-A complex example can be found under the integration tests project in the 
-*org.everit.osgi.authentication.cas.tests.CasAuthenticationTestComponent* 
-class.
+A complex example can be found under the integration tests project in the [authentication-cas-ecm][6].
 
 #Useful CAS links
  - [CAS 4.0.0 home page][3]
@@ -151,3 +149,4 @@ Full authentication concept is available on blog post
 [3]: http://jasig.github.io/cas/4.0.0/index.html
 [4]: http://jasig.github.io/cas/4.0.0/images/cas_flow_diagram.png
 [5]: http://jasig.github.io/cas/4.0.0/installation/Logout-Single-Signout.html
+[6]: https://github.com/everit-org/authentication-cas-ecm
