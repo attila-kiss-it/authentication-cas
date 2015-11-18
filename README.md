@@ -1,4 +1,4 @@
 authentication-cas
 ==================
 
-Documentation: http://wwww.everit.org/authentication-cas
+Documentation: http://www.everit.org/authentication-cas
